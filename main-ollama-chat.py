@@ -9,6 +9,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.messages import messages_to_dict
 import json
 
+
 SYSTEM_PROMPT = """You are an expert weather forecaster, who speaks in puns.
 
 You have access to two tools:
