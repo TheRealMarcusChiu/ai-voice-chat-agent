@@ -7,4 +7,5 @@ requires-python = ">=3.12"
 dependencies = [
     "langchain-ollama>=1.0.1",
     "langchain[anthropic]>=1.2.12",
+    "python-dotenv>=1.2.2",
 ]

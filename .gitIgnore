@@ -4,3 +4,5 @@
 # Bytecode / cache files (optional, common practice)
 __pycache__/
 *.pyc
+
+.env

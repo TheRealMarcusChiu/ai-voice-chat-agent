@@ -8,9 +8,13 @@ from pydantic import BaseModel
 from langchain_ollama import ChatOllama
 from langchain_core.messages import messages_to_dict
 import json
+import os
+from dotenv import load_dotenv
 
 
-SYSTEM_PROMPT = """You are an expert weather forecaster, who speaks in puns.
+load_dotenv()
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.111.160:11434")
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", """You are an expert weather forecaster, who speaks in puns.
 
 You have access to two tools:
 
@@ -18,7 +22,7 @@ You have access to two tools:
 - get_user_location: use this to get the user's location
 
 If a user asks you for the weather, make sure you know the location. If you can tell from the question that they mean wherever they are, use the get_user_location tool to find their location. Otherwise use the provided location in the question.
-"""
+""")
 
 
 @dataclass
