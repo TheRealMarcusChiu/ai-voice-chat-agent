@@ -80,28 +80,18 @@ async def speak_stream(text_stream: AsyncIterator[str]) -> None:
     buffer = ""
     sentence_endings = {'.', '!', '?', '\n'}
 
-    # async def synthesize_and_play(chunk_text: str) -> None:
-    #     chunk_text = chunk_text.strip()
-    #     if not chunk_text:
-    #         return
-    #     generator = pipeline(chunk_text, voice='af_bella', speed=1.3)
-    #     for i, (gs, ps, audio) in enumerate(generator):
-    #         print(f"  Playing audio segment {i} for: {chunk_text}")
-    #         sd.play(audio, samplerate=24000)
-    #         sd.wait()
-    
     async def synthesize_and_play(chunk_text: str) -> None:
         chunk_text = chunk_text.strip()
         if not chunk_text:
             return
-        generator = pipeline(chunk_text, voice='af_bella', speed=1.2)
+        generator = pipeline(chunk_text, voice='af_bella', speed=1.3)
         for i, (gs, ps, audio) in enumerate(generator):
-            print(f"  Playing audio segment {i} for: {chunk_text}")
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda a=audio: (sd.play(a, samplerate=24000), sd.wait())
-            )
+            sd.play(audio, samplerate=24000)
+            sd.wait()
 
     async for token in text_stream:
+        # yield token
+
         buffer += token
 
         # Flush buffer whenever we hit a sentence boundary
@@ -116,8 +106,7 @@ async def speak_stream(text_stream: AsyncIterator[str]) -> None:
 
             sentence = buffer[: flush_idx + 1]
             buffer = buffer[flush_idx + 1 :]
-            # await synthesize_and_play(sentence)
-            await synthesize_and_play("Temperatures are expected to reach into the mid-70s, making it a great day to get outdoors and enjoy some fresh air.")
+            await synthesize_and_play(sentence)
 
     # Flush any remaining text
     if buffer.strip():
@@ -131,16 +120,15 @@ async def main():
         user_prompt = console.input("[bold cyan]You: [/]")
         stream = stream_agent(user_prompt)
         await speak_stream(stream)
+
         # accumulated = ""
         # with Live(console=console, refresh_per_second=20) as live:
-        #     stream = stream_agent(user_prompt)
-        #     await speak_stream(stream)
-            # async for chunk in ui_stream:
-            #     accumulated += chunk
-            #     text = Text()
-            #     text.append("AI: ", style="bold red")
-            #     text.append(accumulated)
-            #     live.update(text)
+        #     async for chunk in ui_stream:
+        #         accumulated += chunk
+        #         text = Text()
+        #         text.append("AI: ", style="bold red")
+        #         text.append(accumulated)
+        #         live.update(text)
 
 if __name__ == "__main__":
     asyncio.run(main())
