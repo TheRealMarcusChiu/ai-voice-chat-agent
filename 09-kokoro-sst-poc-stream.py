@@ -21,7 +21,7 @@ async def speak_stream(text_stream: AsyncIterator[str]) -> None:
             return
         generator = pipeline(chunk_text, voice='af_bella', speed=1.2)
         for i, (gs, ps, audio) in enumerate(generator):
-            print(f"  Playing audio segment {i} for: {chunk_text[:40]!r}...")
+            print(f"  Playing audio segment {i} for: {chunk_text}")
             sd.play(audio, samplerate=24000)
             sd.wait()
 

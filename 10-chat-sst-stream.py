@@ -80,14 +80,26 @@ async def speak_stream(text_stream: AsyncIterator[str]) -> None:
     buffer = ""
     sentence_endings = {'.', '!', '?', '\n'}
 
+    # async def synthesize_and_play(chunk_text: str) -> None:
+    #     chunk_text = chunk_text.strip()
+    #     if not chunk_text:
+    #         return
+    #     generator = pipeline(chunk_text, voice='af_bella', speed=1.3)
+    #     for i, (gs, ps, audio) in enumerate(generator):
+    #         print(f"  Playing audio segment {i} for: {chunk_text}")
+    #         sd.play(audio, samplerate=24000)
+    #         sd.wait()
+    
     async def synthesize_and_play(chunk_text: str) -> None:
         chunk_text = chunk_text.strip()
         if not chunk_text:
             return
-        generator = pipeline(chunk_text, voice='af_bella', speed=1.1)
+        generator = pipeline(chunk_text, voice='af_bella', speed=1.2)
         for i, (gs, ps, audio) in enumerate(generator):
-            sd.play(audio, samplerate=24000)
-            sd.wait()
+            print(f"  Playing audio segment {i} for: {chunk_text}")
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda a=audio: (sd.play(a, samplerate=24000), sd.wait())
+            )
 
     async for token in text_stream:
         buffer += token
@@ -104,52 +116,31 @@ async def speak_stream(text_stream: AsyncIterator[str]) -> None:
 
             sentence = buffer[: flush_idx + 1]
             buffer = buffer[flush_idx + 1 :]
-            await synthesize_and_play(sentence)
+            # await synthesize_and_play(sentence)
+            await synthesize_and_play("Temperatures are expected to reach into the mid-70s, making it a great day to get outdoors and enjoy some fresh air.")
 
     # Flush any remaining text
     if buffer.strip():
         await synthesize_and_play(buffer)
 
-async def fan_out(
-    source: AsyncIterator[str],
-    num_consumers: int
-) -> list[asyncio.Queue]:
-    """Distributes a single async stream into N queues."""
-    queues = [asyncio.Queue() for _ in range(num_consumers)]
-
-    async def distribute():
-        async for chunk in source:
-            for q in queues:
-                await q.put(chunk)
-        for q in queues:
-            await q.put(None)  # sentinel
-
-    asyncio.create_task(distribute())
-    return queues
-
-async def queue_to_stream(q: asyncio.Queue) -> AsyncIterator[str]:
-    """Converts a queue back into an async iterator."""
-    while True:
-        chunk = await q.get()
-        if chunk is None:
-            return
-        yield chunk
 
 async def main():
     console = Console()
 
     while True:
         user_prompt = console.input("[bold cyan]You: [/]")
-        
-        accumulated = ""
-        with Live(console=console, refresh_per_second=20) as live:
-            stream = stream_agent(user_prompt)
-            await speak_stream(stream)
-            async for chunk in ui_stream:
-                accumulated += chunk
-                text = Text()
-                text.append("AI: ", style="bold red")
-                text.append(accumulated)
-                live.update(text)
+        stream = stream_agent(user_prompt)
+        await speak_stream(stream)
+        # accumulated = ""
+        # with Live(console=console, refresh_per_second=20) as live:
+        #     stream = stream_agent(user_prompt)
+        #     await speak_stream(stream)
+            # async for chunk in ui_stream:
+            #     accumulated += chunk
+            #     text = Text()
+            #     text.append("AI: ", style="bold red")
+            #     text.append(accumulated)
+            #     live.update(text)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
