@@ -9,6 +9,11 @@
 - `source .venv/bin/activate`
 - `python 03-main-ollama-chat.py`
 
+To add additional dependencies:
+
+- `uv add DEPENDENCY_NAME_HERE`
+- `uv sync`
+
 # Customize Dev Env
 
 - create new file `.env` with `.env.example` as template
