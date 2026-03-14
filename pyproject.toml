@@ -5,9 +5,12 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "kokoro>=0.9.4",
     "langchain-ollama>=1.0.1",
     "langchain[anthropic]>=1.2.12",
     "prompt-toolkit>=3.0.52",
     "python-dotenv>=1.2.2",
     "rich>=14.3.3",
+    "sounddevice>=0.5.5",
+    "soundfile>=0.13.1",
 ]
