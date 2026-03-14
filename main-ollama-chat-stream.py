@@ -61,7 +61,7 @@ agent = create_agent(
     checkpointer = InMemorySaver())
 
 
-async def main():
+async def stream_agent():
     stream = agent.astream(
         {"messages": [{"role": "user", "content": "What's the weather in Plano?"}]},
         config={"configurable": {"thread_id": "1"}},
@@ -87,9 +87,22 @@ async def main():
 
         i += 1
 
+async def main():
+    task = asyncio.create_task(stream_agent())
+
+    async def wait_for_cancel():
+        await asyncio.sleep(0.75)
+        task.cancel()
+
+    results = await asyncio.gather(task, wait_for_cancel(), return_exceptions=True)
+    
+    for result in results:
+        if isinstance(result, asyncio.CancelledError):
+            print("task was cancelled successfully")
+        elif isinstance(result, Exception):
+            print(f"task raised an exception: {result}")
 
 asyncio.run(main())
-
 
 # while True:
 
