@@ -121,14 +121,8 @@ async def main():
         
         tts_queue = asyncio.Queue()
 
-        async def tee_stream():
-            async for chunk in stream_agent(user_prompt):
-                await tts_queue.put(chunk)
-                yield chunk
-            await tts_queue.put(None)
-
-        async def tts_task():
-            async def queue_gen():
+        async def tts_task() -> None:
+            async def queue_gen() -> AsyncIterator[str]:
                 while True:
                     chunk = await tts_queue.get()
                     if chunk is None:
@@ -136,8 +130,13 @@ async def main():
                     yield chunk
             await speak_stream(queue_gen())
 
-        tts = asyncio.create_task(tts_task())
+        async def tee_stream() -> AsyncIterator[str]:
+            async for chunk in stream_agent(user_prompt):
+                await tts_queue.put(chunk)
+                yield chunk
+            await tts_queue.put(None)
 
+        tts = asyncio.create_task(tts_task())
         console.print("AI: ", style="bold red", end="")
         async for chunk in tee_stream():
             console.print(chunk, end="", highlight=False)
