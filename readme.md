@@ -5,7 +5,7 @@
   - macOS: `brew install espeak-ng`
   - Windows: Download the `.msi` from the [espeak-ng GitHub](https://github.com/espeak-ng/espeak-ng/releases)
 
-- `uv install`
+- `uv sync` or `uv install`
 - `source .venv/bin/activate`
 - `python 03-main-ollama-chat.py`
 
