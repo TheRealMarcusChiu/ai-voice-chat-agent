@@ -118,17 +118,32 @@ async def main():
 
     while True:
         user_prompt = console.input("[bold cyan]You: [/]")
-        stream = stream_agent(user_prompt)
-        await speak_stream(stream)
+        
+        tts_queue = asyncio.Queue()
 
-        # accumulated = ""
-        # with Live(console=console, refresh_per_second=20) as live:
-        #     async for chunk in ui_stream:
-        #         accumulated += chunk
-        #         text = Text()
-        #         text.append("AI: ", style="bold red")
-        #         text.append(accumulated)
-        #         live.update(text)
+        async def tee_stream():
+            async for chunk in stream_agent(user_prompt):
+                await tts_queue.put(chunk)
+                yield chunk
+            await tts_queue.put(None)
+
+        async def tts_task():
+            async def queue_gen():
+                while True:
+                    chunk = await tts_queue.get()
+                    if chunk is None:
+                        return
+                    yield chunk
+            await speak_stream(queue_gen())
+
+        tts = asyncio.create_task(tts_task())
+
+        console.print("AI: ", style="bold red", end="")
+        async for chunk in tee_stream():
+            console.print(chunk, end="", highlight=False)
+
+        await tts
+        console.print()
 
 if __name__ == "__main__":
     asyncio.run(main())
