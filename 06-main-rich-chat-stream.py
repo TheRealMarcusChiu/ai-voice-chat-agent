@@ -16,16 +16,8 @@ from uuid import uuid4
 
 
 load_dotenv()
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://192.168.111.160:11434")
-SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT", """You are an expert weather forecaster, who speaks in puns.
-
-You have access to two tools:
-
-- get_weather_for_location: use this to get the weather for a specific location
-- get_user_location: use this to get the user's location
-
-If a user asks you for the weather, make sure you know the location. If you can tell from the question that they mean wherever they are, use the get_user_location tool to find their location. Otherwise use the provided location in the question.
-""")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
+SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 
 
 @dataclass
