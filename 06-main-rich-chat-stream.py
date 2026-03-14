@@ -13,6 +13,10 @@ import os
 from dotenv import load_dotenv
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from uuid import uuid4
+from rich.console import Console
+from rich.live import Live
+from rich.text import Text
+from typing import AsyncIterator
 
 
 load_dotenv()
@@ -53,74 +57,31 @@ agent = create_agent(
     checkpointer = InMemorySaver())
 
 
-async def stream_agent():
+async def stream_agent(user_prompt: str) -> AsyncIterator[str]:
     stream = agent.astream(
-        {"messages": [{"role": "user", "content": "What's the weather in Plano?"}]},
+        {"messages": [{"role": "user", "content": user_prompt}]},
         config={"configurable": {"thread_id": "1"}},
         context=MyContext(user_id="1"),
         stream_mode="messages")
 
-    i = 0
     async for message, metadata in stream:
         if isinstance(message, AIMessage):
-            print(f"{i} - AgentChunkEvent: message.text={message.text}")
-            if hasattr(message, "tool_calls") and message.tool_calls:
-                for tool_call in message.tool_calls:
-                    id = tool_call.get("id", str(uuid4()))
-                    name = tool_call.get("name", "unknown")
-                    args = tool_call.get("args", {})
-                    print(f"{i} - ToolCall: id={id}, name={name}, args={args}")
+            yield message.text
 
-        if isinstance(message, ToolMessage):
-            tool_call_id = getattr(message, "tool_call_id", "")
-            name = getattr(message, "name", "unknown")
-            result = str(message.content) if message.content else ""
-            print(f"{i} - ToolMessage: tool_call_id={tool_call_id}, name={name}, result={result}")
-
-        i += 1
 
 async def main():
-    task = asyncio.create_task(stream_agent())
+    console = Console()
 
-    async def wait_for_cancel():
-        await asyncio.sleep(0.75)
-        task.cancel()
-
-    results = await asyncio.gather(task, wait_for_cancel(), return_exceptions=True)
-    
-    for result in results:
-        if isinstance(result, asyncio.CancelledError):
-            print("task was cancelled successfully")
-        elif isinstance(result, Exception):
-            print(f"task raised an exception: {result}")
+    while True:
+        user_prompt = console.input("[bold cyan]You: [/]")
+        
+        accumulated = ""
+        with Live(console=console, refresh_per_second=20) as live:
+            async for chunk in stream_agent(user_prompt):
+                accumulated += chunk
+                text = Text()
+                text.append("AI: ", style="bold red")
+                text.append(accumulated)
+                live.update(text)
 
 asyncio.run(main())
-
-# while True:
-
-#     user_input = input("\nHUMAN: ")
-#     response = agent.invoke(
-#         {"messages": [{"role": "user", "content": user_input}]},
-#         config = {"configurable": {"thread_id": "1"}},
-#         context = MyContext(user_id = "1")
-#     )
-    
-#     # print(response["messages"])
-#     # print(json.dumps(messages_to_dict(response["messages"]), indent=2))
-
-#     last_n_messages_to_print = 3
-#     for i in range(last_n_messages_to_print, 0, -1):
-#         message = response["messages"][-i]
-
-#         if message.type == "ai": 
-#             print(f"\nAI: {message.content}")
-#             if len(message.tool_calls) > 0:
-#                 print("AI tool-calls:")
-#                 for tool_call in message.tool_calls:
-#                     print("-", tool_call)
-#         elif message.type == "tool":
-#             print(f"\nTOOL: {message.content}")
-#         elif message.type == "human":
-#             print(f"\nHUMAN: {message.content}")
-#         else:
-#             print("UNKNOWN TYPE: ", message.type)

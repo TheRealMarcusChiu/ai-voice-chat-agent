@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "langchain-ollama>=1.0.1",
     "langchain[anthropic]>=1.2.12",
+    "prompt-toolkit>=3.0.52",
     "python-dotenv>=1.2.2",
     "rich>=14.3.3",
 ]
