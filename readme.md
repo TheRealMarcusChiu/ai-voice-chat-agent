@@ -8,7 +8,7 @@
 - `uv sync`
 - `uv pip install pip`
 - `source .venv/bin/activate` (optional)
-- `python 03-main-ollama-chat.py`
+- `python main.py`
 
 To add additional dependencies:
 
