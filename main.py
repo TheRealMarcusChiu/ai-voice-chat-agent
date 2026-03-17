@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from rich.console import Console
 from typing import AsyncIterator
+# from RealtimeSTT import AudioToTextRecorder
 
 from tools import get_user_location, get_weather_for_location
 from tts import speak_stream
@@ -18,6 +19,7 @@ from config import MyContext, MyResponseFormat
 load_dotenv()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+ENABLE_VOICE = os.getenv("ENABLE_VOICE", "false").lower() == "true"
 
 
 agent = create_agent(
@@ -44,36 +46,63 @@ async def stream_agent(user_prompt: str) -> AsyncIterator[str]:
             yield message.text
 
 
+def on_realtime(text):
+    print(f"\r🔴 {text}    ", end="", flush=True)
+
+async def on_final(text, console):
+    print(f"\n✅ {text}", flush=True)
+
+    user_prompt = text
+
+    tts_queue = asyncio.Queue()
+
+    async def tts_task() -> None:
+        async def queue_gen() -> AsyncIterator[str]:
+            while True:
+                chunk = await tts_queue.get()
+                if chunk is None:
+                    return
+                yield chunk
+        await speak_stream(queue_gen())
+
+    async def tee_stream() -> AsyncIterator[str]:
+        async for chunk in stream_agent(user_prompt):
+            await tts_queue.put(chunk)
+            yield chunk
+        await tts_queue.put(None)
+
+    tts = asyncio.create_task(tts_task())
+    console.print("AI: ", style="bold red", end="")
+    async for chunk in tee_stream():
+        console.print(chunk, end="", highlight=False)
+
+    await tts
+    console.print()
+
 async def main():
     console = Console()
 
-    while True:
-        user_prompt = console.input("[bold cyan]You: [/]")
-        
-        tts_queue = asyncio.Queue()
+    if ENABLE_VOICE:
+        print("Voice input enabled. Please speak into your microphone.")
+        # recorder = AudioToTextRecorder(
+        #     model="tiny",
+        #     silero_sensitivity=0.4,
+        #     enable_realtime_transcription=True,
+        #     realtime_processing_pause=0.05,
+        #     on_realtime_transcription_update=on_realtime,
+        #     spinner=False)
 
-        async def tts_task() -> None:
-            async def queue_gen() -> AsyncIterator[str]:
-                while True:
-                    chunk = await tts_queue.get()
-                    if chunk is None:
-                        return
-                    yield chunk
-            await speak_stream(queue_gen())
+        # while True:
+        #     recorder.text(on_final, console)
+    else:
+        while True:
+            user_prompt = console.input("[bold cyan]You: [/]")
 
-        async def tee_stream() -> AsyncIterator[str]:
+            console.print("AI: ", style="bold red", end="")
             async for chunk in stream_agent(user_prompt):
-                await tts_queue.put(chunk)
-                yield chunk
-            await tts_queue.put(None)
+                console.print(chunk, end="", highlight=False)
+            console.print()
 
-        tts = asyncio.create_task(tts_task())
-        console.print("AI: ", style="bold red", end="")
-        async for chunk in tee_stream():
-            console.print(chunk, end="", highlight=False)
-
-        await tts
-        console.print()
 
 if __name__ == "__main__":
     asyncio.run(main())

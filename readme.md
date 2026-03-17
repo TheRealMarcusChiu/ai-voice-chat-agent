@@ -7,10 +7,19 @@
 - install UV (https://github.com/astral-sh/uv)
 - `uv sync`
 - `uv pip install pip`
-- `source .venv/bin/activate` (optional)
+
+# How to Run
+
+Way #1:
+
+- `uv run main.py`
+
+Way #2:
+
+- `source .venv/bin/activate`
 - `python main.py`
 
-To add additional dependencies:
+# Adding Additional Dependencies
 
 - `uv add DEPENDENCY_NAME_HERE`
 - `uv sync`

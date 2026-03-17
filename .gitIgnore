@@ -8,3 +8,5 @@ __pycache__/
 .env
 
 realtimesst.log
+
+*.egg-info/
