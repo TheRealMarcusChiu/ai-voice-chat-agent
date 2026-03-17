@@ -83,6 +83,7 @@ async def main():
     console = Console()
 
     if ENABLE_VOICE:
+        print("Voice mode enabled. Listening... (Ctrl+C to stop)\n")
         # recorder = AudioToTextRecorder(
         #     model="tiny",
         #     silero_sensitivity=0.4,
