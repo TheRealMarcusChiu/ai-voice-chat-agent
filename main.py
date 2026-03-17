@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from rich.console import Console
 from typing import AsyncIterator
-from RealtimeSTT import AudioToTextRecorder
+# from RealtimeSTT import AudioToTextRecorder
 
 from tools import get_user_location, get_weather_for_location
 from tts import speak_stream
@@ -83,16 +83,16 @@ async def main():
     console = Console()
 
     if ENABLE_VOICE:
-        recorder = AudioToTextRecorder(
-            model="tiny",
-            silero_sensitivity=0.4,
-            enable_realtime_transcription=True,
-            realtime_processing_pause=0.05,
-            on_realtime_transcription_update=on_realtime,
-            spinner=False)
+        # recorder = AudioToTextRecorder(
+        #     model="tiny",
+        #     silero_sensitivity=0.4,
+        #     enable_realtime_transcription=True,
+        #     realtime_processing_pause=0.05,
+        #     on_realtime_transcription_update=on_realtime,
+        #     spinner=False)
 
-        while True:
-            recorder.text(on_final, console)
+        # while True:
+        #     recorder.text(on_final, console)
     else:
         while True:
             user_prompt = console.input("[bold cyan]You: [/]")
