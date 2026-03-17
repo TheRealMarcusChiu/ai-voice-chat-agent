@@ -15,6 +15,7 @@ dependencies = [
     "realtimestt>=0.1.7",
     "rich>=14.3.3",
     "setuptools>=82.0.1",
+    "sherpa-onnx>=1.12.29",
     "sounddevice>=0.5.5",
     "soundfile>=0.13.1",
 ]

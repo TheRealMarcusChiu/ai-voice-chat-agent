@@ -7,10 +7,10 @@ from faster_whisper import WhisperModel
 # Config
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 4000        # ~250ms chunks
-SILENCE_THRESHOLD = 0.01
-BUFFER_SECONDS = 3       # transcribe every N seconds of audio
+SILENCE_THRESHOLD = 0.001
+BUFFER_SECONDS = 0.5       # transcribe every N seconds of audio
 
-model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+model = WhisperModel("tiny", device="cpu", compute_type="int8")
 
 audio_queue = queue.Queue()
 audio_buffer = []
