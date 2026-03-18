@@ -46,7 +46,7 @@ function connectWS() {
     ////////////////
     // STT Events //
     ////////////////
-    if (msg.type === "on-transcript-realtime" && msg.text) {
+    if (msg.type === "on-transcript-unfinished" && msg.text) {
       if (msg.utterance_id !== onTranscriptFullId) {
         if (streamLines[msg.utterance_id]) {
           streamLines[msg.utterance_id].textContent = `You: ` + msg.text;
@@ -56,7 +56,7 @@ function connectWS() {
         scrollDown();
       }
 
-    } else if (msg.type === "on-transcript-full" && msg.text) {
+    } else if (msg.type === "on-transcript-finished" && msg.text) {
       onTranscriptFullId = msg.utterance_id;
       if (streamLines[msg.utterance_id]) {
         streamLines[msg.utterance_id].textContent = `You: ` + msg.text;

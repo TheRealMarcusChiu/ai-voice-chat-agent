@@ -34,23 +34,23 @@ agent = create_agent(
     checkpointer = InMemorySaver())
 
 
-async def on_user_transcript_unfinished(text: str, utterance_id: str, websocket):
-    print(f"[{utterance_id[:8]}] user transcript unfinished: {text}")
+async def on_user_transcript_unfinished(user_transcript: str, utterance_id: str, websocket):
+    print(f"[{utterance_id[:8]}] user transcript unfinished: {user_transcript}")
     await websocket.send(json.dumps({
-        "type": "on-transcript-realtime",
+        "type": "on-transcript-unfinished",
         "utterance_id": utterance_id,
-        "text": text,
+        "text": user_transcript,
     }))
 
-async def on_user_transcript_finished(result, uid, websocket):
-    print(f"[{uid[:8]}] user transcript finished:   {result}")
+async def on_user_transcript_finished(user_transcript: str, utterance_id: str, websocket):
+    print(f"[{utterance_id[:8]}] user transcript finished:   {user_transcript}")
     await asyncio.gather(
         websocket.send(json.dumps({
-            "type": "on-transcript-full",
-            "utterance_id": uid,
-            "text": result,
+            "type": "on-transcript-finished",
+            "utterance_id": utterance_id,
+            "text": user_transcript,
         })),
-        stream_ai_response(websocket, result)
+        stream_ai_response(websocket, user_transcript)
     )
 
 async def stream_ai_response(websocket, prompt):
