@@ -33,12 +33,32 @@ agent = create_agent(
     response_format = ToolStrategy(MyResponseFormat),
     checkpointer = InMemorySaver())
 
-async def stream_ai_response(websocket, text):
+
+async def stream_user_transcript_unfinished(text: str, utterance_id: str, websocket):
+    print(f"[{utterance_id[:8]}] user transcript unfinished: {text}")
+    await websocket.send(json.dumps({
+        "type": "on-transcript-realtime",
+        "utterance_id": utterance_id,
+        "text": text,
+    }))
+
+async def on_user_transcript_finished(result, uid, websocket):
+    print(f"[{uid[:8]}] user transcript finished:   {result}")
+    await asyncio.gather(
+        websocket.send(json.dumps({
+            "type": "on-transcript-full",
+            "utterance_id": uid,
+            "text": result,
+        })),
+        stream_ai_response(websocket, result)
+    )
+
+async def stream_ai_response(websocket, prompt):
     msg_id = str(uuid.uuid4())
     await websocket.send(json.dumps({"type": "ai_stream_start", "id": msg_id}))
 
     stream = agent.astream(
-        {"messages": [{"role": "user", "content": text}]},
+        {"messages": [{"role": "user", "content": prompt}]},
         config={"configurable": {"thread_id": "1"}},
         context=MyContext(user_id="1"),
         stream_mode="messages")
@@ -49,20 +69,12 @@ async def stream_ai_response(websocket, text):
         
     await websocket.send(json.dumps({"type": "ai_stream_end", "id": msg_id}))
 
-async def on_realtime(text: str, utterance_id: str, websocket):
-    print(f"[{utterance_id[:8]}] realtime: {text}")
-    await websocket.send(json.dumps({
-        "type": "on-transcript-realtime",
-        "utterance_id": utterance_id,
-        "text": text,
-    }))
-
 async def handle_client(websocket):
     print("Client connected")
-    loop = asyncio.get_running_loop()
     stt = AudioToTextRecorder2(
-        on_realtime_transcription_update=partial(on_realtime, websocket=websocket),
-        loop=loop)
+        on_realtime_transcription_update=partial(stream_user_transcript_unfinished, websocket=websocket),
+        loop=asyncio.get_running_loop(),
+    )
 
     async def feed_audio():
         async for message in websocket:
@@ -72,21 +84,10 @@ async def handle_client(websocket):
 
     async def transcribe_loop():
         while True:
-            async def on_transcript(result, uid, ws=websocket):
-                print(f"[{uid[:8]}] on-final: {result}")
-                await asyncio.gather(
-                    ws.send(json.dumps({
-                        "type": "on-transcript-full",
-                        "utterance_id": uid,
-                        "text": result,
-                    })),
-                    stream_ai_response(ws, result)
-                )
-            await stt.text(
-                lambda result, uid, ws=websocket: asyncio.ensure_future(
-                    on_transcript(result, uid, ws)
-                )
+            on_final = lambda result, uid, ws=websocket: asyncio.ensure_future(
+                    on_user_transcript_finished(result, uid, ws)
             )
+            await stt.text(on_final=on_final)
 
     await asyncio.gather(feed_audio(), transcribe_loop())
 
