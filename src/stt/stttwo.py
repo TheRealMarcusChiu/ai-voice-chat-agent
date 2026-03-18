@@ -1,4 +1,3 @@
-import sounddevice as sd
 import numpy as np
 import queue
 import threading
@@ -44,27 +43,37 @@ class AudioToTextRecorder2:
                 on_final(result, *args)
 
     def _record_utterance(self) -> np.ndarray:
-        silence_chunks = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
         buffer = []
-        silent_count = 0
+        chunks_per_transcription = max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE))
 
-        while True:
-            chunk = self.audio_queue.get()
-            if not self._is_silent(chunk):
-                buffer.append(chunk)
-                break
-
+        # 1. Wait for speech to begin
         while True:
             chunk = self.audio_queue.get()
             buffer.append(chunk)
+            if len(buffer) % chunks_per_transcription == 0:
+                audio = np.concatenate(buffer)
+                if self._transcribe(audio, realtime=True).strip():
+                    break
+            if len(buffer) > chunks_per_transcription * 4:
+                buffer = buffer[-chunks_per_transcription:]  # don't grow forever while waiting
 
-            if self._is_silent(chunk):
-                silent_count += 1
-            else:
-                silent_count = 0
+        # 2. Record until no speech is detected for silence_duration
+        silence_chunk_count_duration = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
+        silence_chunk_count = 0
+        while True:
+            chunk = self.audio_queue.get()
+            buffer.append(chunk)
+            silence_chunk_count += 1  # assume silence until transcription says otherwise
 
-            if self.on_realtime_transcription_update:
-                if len(buffer) % max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE)) == 0:
+            if len(buffer) % chunks_per_transcription == 0:
+                # Transcribe only the recent window, not the entire buffer
+                recent = np.concatenate(buffer[-chunks_per_transcription:])
+                has_speech = bool(self._transcribe(recent, realtime=True).strip())
+
+                if has_speech:
+                    silence_chunk_count = 0  # speech detected, reset silence counter
+
+                if self.on_realtime_transcription_update:
                     partial = np.concatenate(buffer)
                     def _fire(a=partial):
                         result = self._transcribe(a, realtime=True)
@@ -73,13 +82,10 @@ class AudioToTextRecorder2:
                             asyncio.run_coroutine_threadsafe(cb, self.loop)
                     threading.Thread(target=_fire, daemon=True).start()
 
-            if silent_count >= silence_chunks:
+            if silence_chunk_count >= silence_chunk_count_duration:
                 break
 
         return np.concatenate(buffer)
-
-    def _is_silent(self, chunk):
-        return np.abs(chunk).mean() < self.silence_threshold
 
     def _transcribe(self, audio: np.ndarray, realtime=False) -> str:
         segments, _ = self.model.transcribe(
