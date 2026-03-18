@@ -61,6 +61,7 @@ function connectWS() {
       if (streamLines[msg.utterance_id]) {
         streamLines[msg.utterance_id].textContent = `You: ` + msg.text;
         scrollDown();
+        delete streamLines[msg.utterance_id];
       }
 
     ///////////////////////////
