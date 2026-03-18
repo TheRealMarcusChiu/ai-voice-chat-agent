@@ -3,15 +3,20 @@ import json
 import numpy as np
 import websockets
 from stt import AudioToTextRecorder2
+from functools import partial
 
-def on_realtime(text: str):
+
+async def on_realtime(text: str, websocket):
     print(f"realtime: {text}")
+    await websocket.send(json.dumps({"type": "transcript", "text": text}))
 
 async def handle_client(websocket):
     print("Client connected")
+    loop = asyncio.get_running_loop()  # called from async context, always works
     stt = AudioToTextRecorder2(
-        on_realtime_transcription_update=on_realtime,
-        source="websocket")
+        on_realtime_transcription_update=partial(on_realtime, websocket=websocket),
+        source="websocket",
+        loop=loop)
 
     async def feed_audio():
         async for message in websocket:

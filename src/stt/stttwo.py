@@ -19,12 +19,14 @@ class AudioToTextRecorder2:
         model_size="tiny",
         language="en",
         source="mic",  # "mic" or "websocket"
+        loop=None,
     ):
         self.on_realtime_transcription_update = on_realtime_transcription_update
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
         self.language = language
         self.source = source
+        self.loop = loop
 
         self.audio_queue = queue.Queue()
         self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
@@ -63,6 +65,41 @@ class AudioToTextRecorder2:
         return " ".join(s.text.strip() for s in segments)
 
     def _record_utterance(self) -> np.ndarray:
+        silence_chunks = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
+        buffer = []
+        silent_count = 0
+
+        while True:
+            chunk = self.audio_queue.get()
+            if not self._is_silent(chunk):
+                buffer.append(chunk)
+                break
+
+        while True:
+            chunk = self.audio_queue.get()
+            buffer.append(chunk)
+
+            if self._is_silent(chunk):
+                silent_count += 1
+            else:
+                silent_count = 0
+
+            if self.on_realtime_transcription_update:
+                if len(buffer) % max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE)) == 0:
+                    partial = np.concatenate(buffer)
+                    def _fire(a=partial):
+                        result = self._transcribe(a, realtime=True)
+                        cb = self.on_realtime_transcription_update(result)
+                        if inspect.iscoroutine(cb) and self.loop:
+                            asyncio.run_coroutine_threadsafe(cb, self.loop)
+                    threading.Thread(target=_fire, daemon=True).start()
+
+            if silent_count >= silence_chunks:
+                break
+
+        return np.concatenate(buffer)
+
+    # def _record_utterance(self) -> np.ndarray:
         silence_chunks = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
         buffer = []
         silent_count = 0
