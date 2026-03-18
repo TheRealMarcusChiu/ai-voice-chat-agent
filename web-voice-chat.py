@@ -71,25 +71,26 @@ async def stream_ai_response(websocket, prompt):
 
 async def handle_client(websocket):
     print("Client connected")
+
     stt = AudioToTextRecorder2(
         on_realtime_transcription_update=partial(on_user_transcript_unfinished, websocket=websocket),
         loop=asyncio.get_running_loop(),
     )
 
-    async def feed_audio():
+    async def consume_user_audio():
         async for message in websocket:
             if isinstance(message, bytes):
                 chunk = np.frombuffer(message, dtype=np.float32)
                 stt.feed(chunk)
 
-    async def transcribe_loop():
+    async def produce_user_transcript():
         while True:
             on_final = lambda result, uid, ws=websocket: asyncio.ensure_future(
                     on_user_transcript_finished(result, uid, ws)
             )
             await stt.text(on_final=on_final)
 
-    await asyncio.gather(feed_audio(), transcribe_loop())
+    await asyncio.gather(consume_user_audio(), produce_user_transcript())
 
 
 async def main():
