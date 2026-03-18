@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>WS Transcribe</title>
+<title>AI Voice Chat</title>
 </head>
 <body>
 
@@ -31,13 +31,22 @@ function connectWS() {
   ws = new WebSocket(WS_URL);
   ws.binaryType = "arraybuffer";
 
-  ws.addEventListener("open",  () => { addLine("-- connected --"); });
-  ws.addEventListener("close", () => { addLine("-- disconnected --"); });
+  ws.addEventListener("open",  () => addLine("-- connected --"));
+  ws.addEventListener("close", () => addLine("-- disconnected --"));
   ws.addEventListener("error", () => addLine("-- connection error --"));
 
   ws.addEventListener("message", ({ data }) => {
     const msg = JSON.parse(data);
-    if (msg.type === "transcript" && msg.text) addLine(msg.text);
+    if (msg.type === "on-transcript-realtime" && msg.text) {
+      removeLine();
+      console.log("Realtime transcript:", msg.text);
+      addLine("You: " + msg.text);
+    } else if (msg.type === "on-transcript-full" && msg.text) {
+      removeLine();
+      console.log("Final transcript:", msg.text);
+      addLine("You: " + msg.text);
+      addLine();
+    }
   });
 }
 
@@ -50,13 +59,11 @@ startBtn.addEventListener("click", async () => {
     return;
   }
 
-  // AudioContext at 16kHz so samples are already the right rate for Whisper
+  // AudioContext at 16kHz so samples are already the right rate for STT
   audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
   sourceNode   = audioContext.createMediaStreamSource(micStream);
 
-  // ScriptProcessorNode works from file:// with no module loading
   scriptNode = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
-
   scriptNode.onaudioprocess = (e) => {
     if (!ws || ws.readyState !== 1) return;
     // getChannelData returns a Float32Array view — copy it before sending
@@ -91,6 +98,13 @@ function addLine(text) {
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 }
+
+function removeLine() {
+  if (messages.lastChild) {
+    messages.removeChild(messages.lastChild);
+  }
+}
+
 </script>
 </body>
 </html>
