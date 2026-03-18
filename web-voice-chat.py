@@ -55,7 +55,6 @@ async def on_user_transcript_finished(user_transcript: str, utterance_id: str, w
         invoke_ai(websocket, user_transcript),
     )
 
-
 async def get_ai_response_stream(user_transcript: str):
     stream = agent.astream(
         {"messages": [{"role": "user", "content": user_transcript}]},
@@ -67,7 +66,6 @@ async def get_ai_response_stream(user_transcript: str):
         if isinstance(message, AIMessage):
             yield message.text
 
-
 async def invoke_ai(websocket, user_transcript: str):
     msg_id = str(uuid.uuid4())
 
@@ -78,7 +76,7 @@ async def invoke_ai(websocket, user_transcript: str):
     # --- Consumer 1: forward text chunks to the WebSocket client ---
     async def stream_text_to_websocket():
         await websocket.send(json.dumps({"type": "on-ai-text-response-start", "id": msg_id}))
-        async for chunk in _queue_to_async_iter(text_queue):
+        async for chunk in queue_to_async_iter(text_queue):
             await websocket.send(json.dumps({"type": "on-ai-text-response-chunk", "id": msg_id, "chunk": chunk}))
         await websocket.send(json.dumps({"type": "on-ai-text-response-end", "id": msg_id}))
 
@@ -98,12 +96,12 @@ async def invoke_ai(websocket, user_transcript: str):
 
     async def stream_tts():
         await websocket.send(json.dumps({"type": "on-ai-audio-start", "id": msg_id}))
-        await tts.speak_stream(_queue_to_async_iter(tts_queue), msg_id)
+        await tts.speak_stream(queue_to_async_iter(tts_queue), msg_id)
         await websocket.send(json.dumps({"type": "on-ai-audio-end", "id": msg_id}))
 
     # Run: fan-out producer + both consumers concurrently
     await asyncio.gather(
-        _fan_out_stream(get_ai_response_stream(user_transcript), [text_queue, tts_queue]),
+        fan_out_stream(get_ai_response_stream(user_transcript), [text_queue, tts_queue]),
         stream_text_to_websocket(),
         stream_tts(),
     )
