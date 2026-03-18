@@ -4,6 +4,7 @@ import threading
 import asyncio
 import inspect
 from faster_whisper import WhisperModel
+import uuid as uuid_lib
 
 
 class AudioToTextRecorder2:
@@ -14,7 +15,7 @@ class AudioToTextRecorder2:
         self,
         on_realtime_transcription_update=None,
         silence_threshold=0.001,
-        silence_duration=0.5,
+        silence_duration=1.0,
         model_size="tiny",
         language="en",
         loop=None,
@@ -34,19 +35,19 @@ class AudioToTextRecorder2:
 
     async def text(self, on_final, *args):
         loop = asyncio.get_running_loop()
-        audio = await loop.run_in_executor(None, self._record_utterance)
+        audio, utterance_id = await loop.run_in_executor(None, self._record_utterance)
         result = self._transcribe(audio)
         if result.strip():
             if inspect.iscoroutinefunction(on_final):
-                await on_final(result, *args)
+                await on_final(result, utterance_id, *args)
             else:
-                on_final(result, *args)
+                on_final(result, utterance_id, *args)
 
-    def _record_utterance(self) -> np.ndarray:
+    def _record_utterance(self) -> tuple[np.ndarray, str]:
+        utterance_id = str(uuid_lib.uuid4())   # <-- born here, once
         buffer = []
         chunks_per_transcription = max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE))
 
-        # 1. Wait for speech to begin
         while True:
             chunk = self.audio_queue.get()
             buffer.append(chunk)
@@ -55,29 +56,27 @@ class AudioToTextRecorder2:
                 if self._transcribe(audio, realtime=True).strip():
                     break
             if len(buffer) > chunks_per_transcription * 4:
-                buffer = buffer[-chunks_per_transcription:]  # don't grow forever while waiting
+                buffer = buffer[-chunks_per_transcription:]
 
-        # 2. Record until no speech is detected for silence_duration
         silence_chunk_count_duration = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
         silence_chunk_count = 0
         while True:
             chunk = self.audio_queue.get()
             buffer.append(chunk)
-            silence_chunk_count += 1  # assume silence until transcription says otherwise
+            silence_chunk_count += 1
 
             if len(buffer) % chunks_per_transcription == 0:
-                # Transcribe only the recent window, not the entire buffer
                 recent = np.concatenate(buffer[-chunks_per_transcription:])
                 has_speech = bool(self._transcribe(recent, realtime=True).strip())
-
                 if has_speech:
-                    silence_chunk_count = 0  # speech detected, reset silence counter
+                    silence_chunk_count = 0
 
                 if self.on_realtime_transcription_update:
                     partial = np.concatenate(buffer)
-                    def _fire(a=partial):
+                    uid = utterance_id  # capture in closure
+                    def _fire(a=partial, u=uid):
                         result = self._transcribe(a, realtime=True)
-                        cb = self.on_realtime_transcription_update(result)
+                        cb = self.on_realtime_transcription_update(result, u)  # pass uuid
                         if inspect.iscoroutine(cb) and self.loop:
                             asyncio.run_coroutine_threadsafe(cb, self.loop)
                     threading.Thread(target=_fire, daemon=True).start()
@@ -85,7 +84,7 @@ class AudioToTextRecorder2:
             if silence_chunk_count >= silence_chunk_count_duration:
                 break
 
-        return np.concatenate(buffer)
+        return np.concatenate(buffer), utterance_id   # <-- return both
 
     def _transcribe(self, audio: np.ndarray, realtime=False) -> str:
         segments, _ = self.model.transcribe(

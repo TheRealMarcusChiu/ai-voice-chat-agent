@@ -6,9 +6,13 @@ from stt import AudioToTextRecorder2
 from functools import partial
 
 
-async def on_realtime(text: str, websocket):
-    print(f"realtime: {text}")
-    await websocket.send(json.dumps({"type": "on-transcript-realtime", "text": text}))
+async def on_realtime(text: str, utterance_id: str, websocket):
+    print(f"realtime [{utterance_id[:8]}]: {text}")
+    await websocket.send(json.dumps({
+        "type": "on-transcript-realtime",
+        "utterance_id": utterance_id,
+        "text": text,
+    }))
 
 async def handle_client(websocket):
     print("Client connected")
@@ -25,9 +29,15 @@ async def handle_client(websocket):
 
     async def transcribe_loop():
         while True:
-            await stt.text(lambda result, ws=websocket: asyncio.ensure_future(
-                    ws.send(json.dumps({"type": "on-transcript-full", "text": result}))
-                ))
+            await stt.text(
+                lambda result, uid, ws=websocket: asyncio.ensure_future(
+                    ws.send(json.dumps({
+                        "type": "on-transcript-full",
+                        "utterance_id": uid,
+                        "text": result,
+                    }))
+                )
+            )
 
     await asyncio.gather(feed_audio(), transcribe_loop())
 

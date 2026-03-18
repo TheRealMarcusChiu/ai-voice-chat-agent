@@ -26,6 +26,8 @@ let micStream     = null;
 let scriptNode    = null;
 let sourceNode    = null;
 
+let onTranscriptFullId = null;
+
 // ── WebSocket ─────────────────────────────────────────────────────
 function connectWS() {
   ws = new WebSocket(WS_URL);
@@ -38,10 +40,13 @@ function connectWS() {
   ws.addEventListener("message", ({ data }) => {
     const msg = JSON.parse(data);
     if (msg.type === "on-transcript-realtime" && msg.text) {
-      removeLine();
-      console.log("Realtime transcript:", msg.text);
-      addLine("You: " + msg.text);
+      if (msg.utterance_id !== onTranscriptFullId) {
+        removeLine();
+        console.log("Realtime transcript:", msg.text);
+        addLine("You: " + msg.text);
+      }
     } else if (msg.type === "on-transcript-full" && msg.text) {
+      onTranscriptFullId = msg.utterance_id;
       removeLine();
       console.log("Final transcript:", msg.text);
       addLine("You: " + msg.text);
