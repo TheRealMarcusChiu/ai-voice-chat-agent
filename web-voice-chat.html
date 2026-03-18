@@ -28,6 +28,9 @@ let sourceNode    = null;
 
 let onTranscriptFullId = null;
 
+// Tracks in-progress streamed response lines keyed by stream id
+const streamLines = {};
+
 // ── WebSocket ─────────────────────────────────────────────────────
 function connectWS() {
   ws = new WebSocket(WS_URL);
@@ -39,18 +42,42 @@ function connectWS() {
 
   ws.addEventListener("message", ({ data }) => {
     const msg = JSON.parse(data);
+
+    ////////////////
+    // STT Events //
+    ////////////////
     if (msg.type === "on-transcript-realtime" && msg.text) {
       if (msg.utterance_id !== onTranscriptFullId) {
-        removeLine();
-        console.log("Realtime transcript:", msg.text);
-        addLine("You: " + msg.text);
+        if (streamLines[msg.utterance_id]) {
+          streamLines[msg.utterance_id].textContent = `You: ` + msg.text;
+        } else {
+          streamLines[msg.utterance_id] = addLine(`You: ` + msg.text);
+        }
+        scrollDown();
       }
+
     } else if (msg.type === "on-transcript-full" && msg.text) {
       onTranscriptFullId = msg.utterance_id;
-      removeLine();
-      console.log("Final transcript:", msg.text);
-      addLine("You: " + msg.text);
-      addLine();
+      if (streamLines[msg.utterance_id]) {
+        streamLines[msg.utterance_id].textContent = `You: ` + msg.text;
+        scrollDown();
+      }
+
+    ///////////////////////////
+    // AI Output Text Events //
+    ///////////////////////////
+    } else if (msg.type === "ai_stream_start") {
+      streamLines[msg.id] = addLine(`server: `);
+      scrollDown();
+
+    } else if (msg.type === "ai_stream_chunk") {
+      if (streamLines[msg.id]) {
+        streamLines[msg.id].textContent += msg.chunk;
+        scrollDown();
+      }
+
+    } else if (msg.type === "ai_stream_end") {
+      delete streamLines[msg.id];
     }
   });
 }
@@ -101,6 +128,11 @@ function addLine(text) {
   const div = document.createElement("div");
   div.textContent = text;
   messages.appendChild(div);
+  scrollDown();
+  return div;
+}
+
+function scrollDown() {
   messages.scrollTop = messages.scrollHeight;
 }
 
