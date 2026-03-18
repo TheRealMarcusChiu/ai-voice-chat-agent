@@ -21,8 +21,8 @@ Way #2:
 
 # How to Run (Web)
 
-- `uv run main-web.py`
-- open `index.html` in browser
+- `uv run web-text-chat.py`
+- open `web-text-chat.html` in browser
 
 # Adding Additional Dependencies
 

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WS Transcribe</title>
+</head>
+<body>
+
+<button id="start-btn">Start Mic</button>
+<button id="stop-btn" disabled>Stop</button>
+<div id="messages" style="height:300px;overflow-y:auto;border:1px solid #ccc;padding:4px"></div>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+
+const startBtn = document.getElementById("start-btn");
+const stopBtn  = document.getElementById("stop-btn");
+const messages = document.getElementById("messages");
+
+const SAMPLE_RATE  = 16000;
+const BUFFER_SIZE  = 4096;
+
+let ws            = null;
+let audioContext  = null;
+let micStream     = null;
+let scriptNode    = null;
+let sourceNode    = null;
+
+// ── WebSocket ─────────────────────────────────────────────────────
+function connectWS() {
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = "arraybuffer";
+
+  ws.addEventListener("open",  () => { addLine("-- connected --"); });
+  ws.addEventListener("close", () => { addLine("-- disconnected --"); });
+  ws.addEventListener("error", () => addLine("-- connection error --"));
+
+  ws.addEventListener("message", ({ data }) => {
+    const msg = JSON.parse(data);
+    if (msg.type === "transcript" && msg.text) addLine(msg.text);
+  });
+}
+
+// ── Mic capture using ScriptProcessorNode (no worklet module needed) ──
+startBtn.addEventListener("click", async () => {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (e) {
+    addLine("-- mic access denied: " + e.message + " --");
+    return;
+  }
+
+  // AudioContext at 16kHz so samples are already the right rate for Whisper
+  audioContext = new AudioContext({ sampleRate: SAMPLE_RATE });
+  sourceNode   = audioContext.createMediaStreamSource(micStream);
+
+  // ScriptProcessorNode works from file:// with no module loading
+  scriptNode = audioContext.createScriptProcessor(BUFFER_SIZE, 1, 1);
+
+  scriptNode.onaudioprocess = (e) => {
+    if (!ws || ws.readyState !== 1) return;
+    // getChannelData returns a Float32Array view — copy it before sending
+    const samples = new Float32Array(e.inputBuffer.getChannelData(0));
+    ws.send(samples.buffer);
+  };
+
+  sourceNode.connect(scriptNode);
+  scriptNode.connect(audioContext.destination);
+
+  connectWS();
+  startBtn.disabled = true;
+  stopBtn.disabled  = false;
+  addLine("-- mic started, speak now --");
+});
+
+stopBtn.addEventListener("click", () => {
+  scriptNode?.disconnect();
+  sourceNode?.disconnect();
+  micStream?.getTracks().forEach(t => t.stop());
+  audioContext?.close();
+  ws?.close();
+
+  startBtn.disabled = false;
+  stopBtn.disabled  = true;
+  addLine("-- stopped --");
+});
+
+function addLine(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  messages.appendChild(div);
+  messages.scrollTop = messages.scrollHeight;
+}
+</script>
+</body>
+</html>
