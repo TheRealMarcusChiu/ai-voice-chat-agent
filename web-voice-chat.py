@@ -15,7 +15,7 @@ from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from tools import get_user_location, get_weather_for_location
 from config import MyContext, MyResponseFormat
 from tts import TextToSpeechStreamer
-
+from util import queue_to_async_iter, fan_out_stream
 
 load_dotenv()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
@@ -66,29 +66,6 @@ async def get_ai_response_stream(user_transcript: str):
     async for message, metadata in stream:
         if isinstance(message, AIMessage):
             yield message.text
-
-
-async def _fan_out_stream(source_stream, queues: list[asyncio.Queue]):
-    """
-    Drain *source_stream* and push every item into every queue in *queues*.
-    Sends `None` as a sentinel to signal end-of-stream.
-    """
-    try:
-        async for item in source_stream:
-            for q in queues:
-                await q.put(item)
-    finally:
-        for q in queues:
-            await q.put(None)  # sentinel
-
-
-async def _queue_to_async_iter(queue: asyncio.Queue):
-    """Yield items from *queue* until the `None` sentinel is received."""
-    while True:
-        item = await queue.get()
-        if item is None:
-            return
-        yield item
 
 
 async def invoke_ai(websocket, user_transcript: str):
