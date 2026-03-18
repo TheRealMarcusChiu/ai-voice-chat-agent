@@ -55,7 +55,7 @@ async def on_user_transcript_finished(user_transcript: str, utterance_id: str, w
 
 async def stream_ai_response(websocket, prompt):
     msg_id = str(uuid.uuid4())
-    await websocket.send(json.dumps({"type": "ai_stream_start", "id": msg_id}))
+    await websocket.send(json.dumps({"type": "on-ai-text-response-start", "id": msg_id}))
 
     stream = agent.astream(
         {"messages": [{"role": "user", "content": prompt}]},
@@ -65,9 +65,9 @@ async def stream_ai_response(websocket, prompt):
 
     async for message, metadata in stream:
         if isinstance(message, AIMessage):
-            await websocket.send(json.dumps({"type": "ai_stream_chunk", "id": msg_id, "chunk": message.text}))
+            await websocket.send(json.dumps({"type": "on-ai-text-response-chunk", "id": msg_id, "chunk": message.text}))
         
-    await websocket.send(json.dumps({"type": "ai_stream_end", "id": msg_id}))
+    await websocket.send(json.dumps({"type": "on-ai-text-response-end", "id": msg_id}))
 
 async def handle_client(websocket):
     print("Client connected")

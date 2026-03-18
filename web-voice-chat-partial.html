@@ -67,17 +67,17 @@ function connectWS() {
     ///////////////////////////
     // AI Output Text Events //
     ///////////////////////////
-    } else if (msg.type === "ai_stream_start") {
+    } else if (msg.type === "on-ai-text-response-start") {
       streamLines[msg.id] = addLine(`server: `);
       scrollDown();
 
-    } else if (msg.type === "ai_stream_chunk") {
+    } else if (msg.type === "on-ai-text-response-chunk") {
       if (streamLines[msg.id]) {
         streamLines[msg.id].textContent += msg.chunk;
         scrollDown();
       }
 
-    } else if (msg.type === "ai_stream_end") {
+    } else if (msg.type === "on-ai-text-response-end") {
       delete streamLines[msg.id];
     }
   });
