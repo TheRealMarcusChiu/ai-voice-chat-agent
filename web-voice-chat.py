@@ -34,7 +34,7 @@ agent = create_agent(
     checkpointer = InMemorySaver())
 
 
-async def stream_user_transcript_unfinished(text: str, utterance_id: str, websocket):
+async def on_user_transcript_unfinished(text: str, utterance_id: str, websocket):
     print(f"[{utterance_id[:8]}] user transcript unfinished: {text}")
     await websocket.send(json.dumps({
         "type": "on-transcript-realtime",
@@ -72,7 +72,7 @@ async def stream_ai_response(websocket, prompt):
 async def handle_client(websocket):
     print("Client connected")
     stt = AudioToTextRecorder2(
-        on_realtime_transcription_update=partial(stream_user_transcript_unfinished, websocket=websocket),
+        on_realtime_transcription_update=partial(on_user_transcript_unfinished, websocket=websocket),
         loop=asyncio.get_running_loop(),
     )
 
