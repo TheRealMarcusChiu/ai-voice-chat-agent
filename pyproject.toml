@@ -18,6 +18,7 @@ dependencies = [
     "sherpa-onnx>=1.12.29",
     "sounddevice>=0.5.5",
     "soundfile>=0.13.1",
+    "websockets>=16.0",
 ]
 
 [tool.uv]

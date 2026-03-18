@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>WS Chat</title>
+</head>
+<body>
+
+<div id="messages" style="height:300px;overflow-y:auto;border:1px solid #ccc;padding:4px"></div>
+<input id="msg-input" type="text" placeholder="Type a message…" size="50" disabled>
+<button id="send-btn" disabled>Send</button>
+
+<script>
+const WS_URL = "ws://localhost:8765";
+
+const messages = document.getElementById("messages");
+const msgInput = document.getElementById("msg-input");
+const sendBtn  = document.getElementById("send-btn");
+
+const ws = new WebSocket(WS_URL);
+
+// Tracks in-progress streamed response lines keyed by stream id
+const streamLines = {};
+
+// Current outgoing message being streamed char-by-char
+let outgoingDiv = null;
+
+ws.addEventListener("open", () => {
+  msgInput.disabled = false;
+  sendBtn.disabled = false;
+  addLine("-- connected --");
+});
+
+ws.addEventListener("close", () => {
+  msgInput.disabled = true;
+  sendBtn.disabled = true;
+  addLine("-- disconnected --");
+});
+
+ws.addEventListener("error", () => addLine("-- connection error --"));
+
+ws.addEventListener("message", ({ data }) => {
+  const msg = JSON.parse(data);
+
+  if (msg.type === "peer_chunk") {
+    // A peer is streaming their message live
+    if (!streamLines["peer"]) {
+      streamLines["peer"] = addLine("other: ");
+    }
+    streamLines["peer"].textContent += msg.chunk;
+    scrollDown();
+
+  } else if (msg.type === "peer_end") {
+    // Peer finished typing
+    streamLines["peer"] = null;
+    scrollDown();
+
+  } else if (msg.type === "stream_start") {
+    streamLines[msg.id] = addLine(`server: `);
+    scrollDown();
+
+  } else if (msg.type === "stream_chunk") {
+    // Append a character to the server's streamed response
+    if (streamLines[msg.id]) {
+      streamLines[msg.id].textContent += msg.chunk;
+      scrollDown();
+    }
+
+  } else if (msg.type === "stream_end") {
+    // Server stream complete
+    delete streamLines[msg.id];
+  }
+});
+
+function addLine(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  messages.appendChild(div);
+  scrollDown();
+  return div;
+}
+
+function scrollDown() {
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// Stream each keystroke to the server as user types
+msgInput.addEventListener("input", (e) => {
+  if (ws.readyState !== 1) return;
+
+  // Show what we're typing locally
+  if (!outgoingDiv) {
+    outgoingDiv = addLine("you: ");
+  }
+  outgoingDiv.textContent = "you: " + msgInput.value;
+
+  // Send the latest character typed
+  const chunk = e.data || "";
+  if (chunk) {
+    ws.send(JSON.stringify({ type: "stream_chunk", chunk }));
+  }
+});
+
+function sendMessage() {
+  const text = msgInput.value.trim();
+  if (!text || ws.readyState !== 1) return;
+
+  // Finalize the outgoing line
+  if (outgoingDiv) {
+    outgoingDiv.textContent = "you: " + text;
+    outgoingDiv = null;
+  }
+
+  // Tell server the full message is done
+  ws.send(JSON.stringify({ type: "stream_end", text }));
+  msgInput.value = "";
+}
+
+sendBtn.addEventListener("click", sendMessage);
+msgInput.addEventListener("keydown", e => { if (e.key === "Enter") sendMessage(); });
+</script>
+</body>
+</html>
