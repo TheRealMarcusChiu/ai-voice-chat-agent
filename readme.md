@@ -8,7 +8,7 @@
 - `uv sync`
 - `uv pip install pip`
 
-# How to Run
+# How to Run (Terminal)
 
 Way #1:
 
@@ -18,6 +18,11 @@ Way #2:
 
 - `source .venv/bin/activate`
 - `python main.py`
+
+# How to Run (Web)
+
+- `uv run main-web.py`
+- open `index.html` in browser
 
 # Adding Additional Dependencies
 
