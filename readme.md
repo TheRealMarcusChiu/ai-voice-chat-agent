@@ -8,7 +8,7 @@
 - `uv sync`
 - `uv pip install pip`
 
-# How to Run (Terminal)
+# How to Run
 
 Way #1:
 
@@ -18,11 +18,6 @@ Way #2:
 
 - `source .venv/bin/activate`
 - `python main.py`
-
-# How to Run (Web)
-
-- `uv run web-text-chat.py`
-- open `web-text-chat.html` in browser
 
 # Adding Additional Dependencies
 
