@@ -404,15 +404,30 @@ function getWsUrl() {
 // ── Audio ─────────────────────────────────────────────────────────────────
 function scheduleAudioChunk(float32Samples, tts_sample_rate) {
   if (!audioContext) return;
-  const buffer = audioContext.createBuffer(1, float32Samples.length, tts_sample_rate);
-  buffer.copyToChannel(float32Samples, 0);
+
+  // Creates an in-memory audio buffer for this chunk
+  const buffer = audioContext.createBuffer(
+      1,                      // 1 channel (mono)
+      float32Samples.length,  // number of samples
+      tts_sample_rate         // e.g. 24000 Hz
+  );
+  buffer.copyToChannel(float32Samples, 0); // copy your float32 audio data in
+
+  // Wraps the buffer in a playable "source node" and connects to speakers
   const source = audioContext.createBufferSource();
   source.buffer = buffer;
-  source.connect(audioContext.destination);
+  source.connect(audioContext.destination); // destination = speakers
+
+  // The scheduling logic
   const now = audioContext.currentTime;
-  if (nextPlayAt < now) nextPlayAt = now;
-  source.start(nextPlayAt);
-  nextPlayAt += buffer.duration;
+  if (nextPlayAt < now) nextPlayAt = now; // if we've fallen behind, catch up to now
+  source.start(nextPlayAt);               // schedule this chunk to start exactly when the last one ends
+  nextPlayAt += buffer.duration;          // advance the cursor by this chunk's duration
+
+  // `nextPlayAt` is the key — it's a running cursor that tracks when the next chunk should start:
+  // - chunk 1: starts at t=0.0,  duration=0.5s → nextPlayAt = 0.5
+  // - chunk 2: starts at t=0.5,  duration=0.5s → nextPlayAt = 1.0
+  // - chunk 3: starts at t=1.0,  duration=0.5s → nextPlayAt = 1.5
 }
 
 function resetAudioScheduler() { nextPlayAt = 0; }
