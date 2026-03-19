@@ -16,7 +16,7 @@ from config import MyContext, MyResponseFormat
 from tts import MyTTS
 from stt import MySTT
 from util import queue_to_async_iter, fan_out_stream
-
+import urllib.parse
 
 async def on_user_transcript_unfinished(user_transcript: str, utterance_id: str):
     print(f"[{utterance_id[:8]}] user transcript unfinished: {user_transcript}")
@@ -40,8 +40,8 @@ async def on_user_transcript_finished(user_transcript: str, utterance_id: str):
 async def get_ai_response_stream(user_transcript: str):
     stream = agent.astream(
         {"messages": [{"role": "user", "content": user_transcript}]},
-        config={"configurable": {"thread_id": "1"}},
-        context=MyContext(user_id="1"),
+        config={"configurable": {"thread_id": user_id}},
+        context=MyContext(user_id=user_id),
         stream_mode="messages",
     )
     async for message, metadata in stream:
@@ -86,11 +86,17 @@ async def invoke_ai(user_transcript: str):
     )
 
 async def handle_client(websocket):
-    print("Client connected")
-
+    global user_id
     global ws
     global stt
     global tts
+
+    query = websocket.request.path  # e.g. "/?user_id=alice"
+    params = urllib.parse.parse_qs(urllib.parse.urlparse(query).query)
+    user_id = params.get("user_id", [None])[0]
+    
+    print(f"Client connected: user_id={user_id}")
+
     ws = websocket
     stt = MySTT(on_user_transcript_unfinished=on_user_transcript_unfinished, device=DEVICE)
     tts = MyTTS(on_ai_audio_response_chunk=on_ai_audio_response_chunk, device=DEVICE)
@@ -129,7 +135,7 @@ agent = create_agent(
     checkpointer=InMemorySaver(),
 )
 
-
+user_id = None
 ws = None
 stt = None
 tts = None
