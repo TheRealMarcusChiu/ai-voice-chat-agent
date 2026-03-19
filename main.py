@@ -23,11 +23,12 @@ load_dotenv()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
 DEVICE = os.getenv("DEVICE", "cpu")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
 
 agent = create_agent(
     model=ChatOllama(
-        model="llama3.2",
+        model=OLLAMA_MODEL,
         temperature=0,
         base_url=OLLAMA_BASE_URL,
     ),
