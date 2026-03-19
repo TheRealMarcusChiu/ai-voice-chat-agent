@@ -1,2 +1,2 @@
 from .stt import AudioToTextRecorder
-from .stttwo import AudioToTextRecorder2
+from .mystt import MySTT
