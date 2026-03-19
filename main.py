@@ -46,6 +46,7 @@ class ClientSession:
         self.ws = websocket
         self.user_id = user_id
         self.stt = MySTT(
+            on_user_transcript_start=self.on_user_transcript_start,
             on_user_transcript_unfinished=self.on_user_transcript_unfinished,
             device=DEVICE,
         )
@@ -53,6 +54,13 @@ class ClientSession:
             on_ai_audio_response_chunk=self.on_ai_audio_response_chunk,
             device=DEVICE,
         )
+
+    async def on_user_transcript_start(self, utterance_id: str):
+        print(f"[{self.user_id}][{utterance_id[:8]}] transcript started")
+        await self.ws.send(json.dumps({
+            "type": "on-transcript-start",
+            "utterance_id": utterance_id,
+        }))
 
     async def on_user_transcript_unfinished(self, user_transcript: str, utterance_id: str):
         print(f"[{self.user_id}][{utterance_id[:8]}] transcript unfinished: {user_transcript}")

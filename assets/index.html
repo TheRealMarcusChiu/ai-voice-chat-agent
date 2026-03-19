@@ -377,6 +377,7 @@ let sourceNode   = null;
 let selectedAddr = "ws://localhost:8765";
 let onTranscriptFullId = null;
 const streamLines = {};
+let activeAudioSources = [];
 let nextPlayAt = 0;
 let isMuted = false;
 
@@ -428,9 +429,29 @@ function scheduleAudioChunk(float32Samples, tts_sample_rate) {
   // - chunk 1: starts at t=0.0,  duration=0.5s → nextPlayAt = 0.5
   // - chunk 2: starts at t=0.5,  duration=0.5s → nextPlayAt = 1.0
   // - chunk 3: starts at t=1.0,  duration=0.5s → nextPlayAt = 1.5
+
+  // Track the source
+  activeAudioSources.push(source);
+
+  // Auto-remove from list when it finishes naturally
+  source.onended = () => {
+    activeAudioSources = activeAudioSources.filter(s => s !== source);
+  };
 }
 
 function resetAudioScheduler() { nextPlayAt = 0; }
+
+function cancelActiveAudioSources() {
+  activeAudioSources.forEach(source => {
+    try {
+      source.stop();  // immediately stops playback
+    } catch (e) {
+      // ignore — source may have already finished
+    }
+  });
+  activeAudioSources = [];
+  nextPlayAt = 0;  // reset scheduler
+}
 
 // ── WebSocket ─────────────────────────────────────────────────────────────
 function connectWS(url) {
@@ -453,7 +474,10 @@ function connectWS(url) {
   ws.addEventListener("message", ({ data }) => {
     const msg = JSON.parse(data);
 
-    if (msg.type === "on-transcript-unfinished" && msg.text) {
+    if (msg.type === "on-transcript-start") {
+      console.log("transcript started: ", msg.utterance_id);
+      cancelActiveAudioSources();
+    } else if (msg.type === "on-transcript-unfinished" && msg.text) {
       if (msg.utterance_id !== onTranscriptFullId) {
         if (streamLines[msg.utterance_id]) {
           streamLines[msg.utterance_id].textContent = msg.text;
