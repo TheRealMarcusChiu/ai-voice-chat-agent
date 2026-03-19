@@ -55,10 +55,6 @@ class ClientSession:
             device=DEVICE,
         )
 
-    # ------------------------------------------------------------------
-    # STT callbacks
-    # ------------------------------------------------------------------
-
     async def on_user_transcript_unfinished(self, user_transcript: str, utterance_id: str):
         print(f"[{self.user_id}][{utterance_id[:8]}] transcript unfinished: {user_transcript}")
         await self.ws.send(json.dumps({
@@ -77,10 +73,6 @@ class ClientSession:
             })),
             self.invoke_ai(user_transcript),
         )
-
-    # ------------------------------------------------------------------
-    # AI pipeline
-    # ------------------------------------------------------------------
 
     async def get_ai_response_stream(self, user_transcript: str):
         stream = agent.astream(
