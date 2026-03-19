@@ -71,6 +71,7 @@ async def on_ai_audio_response_chunk(audio_bytes: bytes, _msg_id: str):
     }))
 
 async def invoke_ai(user_transcript: str):
+    print("Invoking AI with prompt: ", user_transcript)
     msg_id = str(uuid.uuid4())
 
     # Two queues — one per consumer of the LLM token stream
