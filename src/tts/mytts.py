@@ -5,7 +5,7 @@ import numpy as np
 
 
 # Callback type: receives raw PCM bytes (float32, 24000 Hz) and a message id
-AudioChunkCallback = Callable[[bytes, str], Awaitable[None]]
+AudioChunkCallback = Callable[[bytes, int, str], Awaitable[None]]
 
 
 class MyTTS:
@@ -52,7 +52,7 @@ class MyTTS:
             if hasattr(audio, "numpy"):
                 audio = audio.numpy()  # Tensor → numpy
             audio_bytes = np.asarray(audio, dtype=np.float32).tobytes()
-            await self.on_ai_audio_response_chunk(audio_bytes, msg_id)
+            await self.on_ai_audio_response_chunk(audio_bytes, self.samplerate, msg_id)
 
     async def speak_stream(self, text_stream: AsyncIterator[str], msg_id: str) -> None:
         """

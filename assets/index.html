@@ -402,9 +402,9 @@ function getWsUrl() {
 }
 
 // ── Audio ─────────────────────────────────────────────────────────────────
-function scheduleAudioChunk(float32Samples) {
+function scheduleAudioChunk(float32Samples, tts_sample_rate) {
   if (!audioContext) return;
-  const buffer = audioContext.createBuffer(1, float32Samples.length, TTS_SAMPLE_RATE);
+  const buffer = audioContext.createBuffer(1, float32Samples.length, tts_sample_rate);
   buffer.copyToChannel(float32Samples, 0);
   const source = audioContext.createBufferSource();
   source.buffer = buffer;
@@ -467,7 +467,9 @@ function connectWS(url) {
     } else if (msg.type === "on-ai-audio-start") {
       resetAudioScheduler();
     } else if (msg.type === "on-ai-audio-chunk") {
-      scheduleAudioChunk(new Float32Array(msg.audio));
+      scheduleAudioChunk(new Float32Array(msg.audio), msg.samplerate);
+    } else if (msg.type === "on-ai-audio-end") {
+      // No-op for now
     }
   });
 }

@@ -54,6 +54,7 @@ class MySTT:
         buffer = []
         chunks_per_transcription = max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE))
 
+        # Wait until user starts speaking (i.e., until we get a non-silent transcription)
         while True:
             chunk = self.audio_queue.get()
             buffer.append(chunk)
@@ -64,6 +65,7 @@ class MySTT:
             if len(buffer) > chunks_per_transcription * 4:
                 buffer = buffer[-chunks_per_transcription:]
 
+        # Once we detect speech, keep recording until we get sustained silence
         silence_chunk_count_duration = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
         silence_chunk_count = 0
         while True:

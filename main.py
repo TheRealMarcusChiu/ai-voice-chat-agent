@@ -37,7 +37,6 @@ agent = create_agent(
     response_format=ToolStrategy(MyResponseFormat),
     checkpointer=InMemorySaver(),
 )
-sessions = set()
 
 
 class ClientSession:
@@ -100,13 +99,12 @@ class ClientSession:
         await self.tts.speak_stream(queue_to_async_iter(tts_queue), msg_id)
         await self.ws.send(json.dumps({"type": "on-ai-audio-end", "id": msg_id}))
 
-    async def on_ai_audio_response_chunk(self, audio_bytes: bytes, msg_id: str):
-        """Called by TextToSpeechStreamer for every synthesized audio segment."""
+    async def on_ai_audio_response_chunk(self, audio_bytes: bytes, samplerate: int, msg_id: str):
         await self.ws.send(json.dumps({
             "type": "on-ai-audio-chunk",
             "id": msg_id,
             "audio": np.frombuffer(audio_bytes, dtype=np.float32).tolist(),
-            "samplerate": 24000,
+            "samplerate": samplerate,
         }))
 
     async def invoke_ai(self, user_transcript: str):
@@ -143,10 +141,6 @@ class ClientSession:
 
         await asyncio.gather(consume_user_audio(), produce_user_transcript())
 
-    async def close(self):
-        await self.tts.close()
-        await self.stt.close()
-
 
 # ------------------------------------------------------------------
 # WebSocket entry point — one ClientSession per connection
@@ -156,23 +150,9 @@ async def handle_client(websocket):
     query = websocket.request.path
     params = urllib.parse.parse_qs(urllib.parse.urlparse(query).query)
     user_id = params.get("user_id", [None])[0] or str(uuid.uuid4())
-
     session = ClientSession(websocket, user_id)
-    sessions.add(session)
-
     print(f"Client connected: user_id={user_id}")
-    print(f"Active sessions: {len(sessions)}")
-
-    try:
-        await session.run()
-    except websockets.exceptions.ConnectionClosed:
-        print(f"Client Exception: user_id={user_id} - websockets.exceptions.ConnectionClosed")
-    finally:
-        print(f"Client disconnecting: user_id={user_id}")
-        await session.close()
-        sessions.remove(session)
-        print(f"Client disconnected: user_id={user_id}")
-        print(f"Active sessions: {len(sessions)}")
+    await session.run()
 
 
 # ------------------------------------------------------------------
