@@ -2,7 +2,7 @@ import asyncio
 import json
 import numpy as np
 import websockets
-from src.stt.stt import AudioToTextRecorder
+from stt import AudioToTextRecorder2
 from functools import partial
 import uuid
 from langgraph.checkpoint.memory import InMemorySaver
@@ -12,9 +12,9 @@ from langchain_ollama import ChatOllama
 import os
 from dotenv import load_dotenv
 from langchain.messages import AIMessage, HumanMessage, ToolMessage
-from src.tools.weather import get_user_location, get_weather_for_location
-from src.config import MyContext, MyResponseFormat
-from src.tts.tts import TextToSpeechStreamer
+from tools import get_user_location, get_weather_for_location
+from config import MyContext, MyResponseFormat
+from tts import TextToSpeechStreamer
 from util import queue_to_async_iter, fan_out_stream
 
 load_dotenv()

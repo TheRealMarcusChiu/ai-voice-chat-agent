@@ -2,7 +2,7 @@
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 
-from src.config import MyContext
+from config import MyContext
 
 
 @tool

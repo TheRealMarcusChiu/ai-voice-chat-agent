@@ -10,10 +10,10 @@ from langchain.messages import AIMessage, HumanMessage, ToolMessage
 from rich.console import Console
 from typing import AsyncIterator
 
-from src.tools.weather import get_user_location, get_weather_for_location
-from src.tts.tts import speak_stream
-from src.stt.stt import AudioToTextRecorder
-from src.config import MyContext, MyResponseFormat
+from tools import get_user_location, get_weather_for_location
+from tts import speak_stream
+from stt import AudioToTextRecorder
+from config import MyContext, MyResponseFormat
 from functools import partial
 
 
