@@ -4,13 +4,11 @@ from kokoro import KPipeline
 import numpy as np
 
 
-pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
-
 # Callback type: receives raw PCM bytes (float32, 24000 Hz) and a message id
 AudioChunkCallback = Callable[[bytes, str], Awaitable[None]]
 
 
-class TextToSpeechStreamer:
+class MyTTS:
     """
     Consumes an async text stream, synthesizes TTS incrementally sentence-by-sentence,
     and emits audio chunks via a callback (e.g. sending over a WebSocket).
@@ -20,23 +18,20 @@ class TextToSpeechStreamer:
 
     def __init__(
         self,
-        on_audio_chunk: AudioChunkCallback,
+        on_ai_audio_response_chunk: AudioChunkCallback,
         voice: str = 'af_bella',
         speed: float = 1.3,
         samplerate: int = 24000,
+        device: str = None,
     ):
-        """
-        Args:
-            on_audio_chunk: async callback(audio_bytes: bytes, msg_id: str) called
-                            for each synthesized audio chunk.
-            voice:          Kokoro voice ID.
-            speed:          TTS speed multiplier.
-            samplerate:     Output sample rate in Hz.
-        """
-        self.on_audio_chunk = on_audio_chunk
+        self.on_ai_audio_response_chunk = on_ai_audio_response_chunk
         self.voice = voice
         self.speed = speed
         self.samplerate = samplerate
+        if device == "cuda":
+            self.pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M', device="cuda")
+        else:
+            self.pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
 
     async def _synthesize_and_emit(self, chunk_text: str, msg_id: str) -> None:
         """Synthesize a single sentence and fire the callback for every audio segment."""
@@ -48,7 +43,7 @@ class TextToSpeechStreamer:
 
         # Run the blocking Kokoro pipeline in a thread-pool executor
         def _run_pipeline():
-            return list(pipeline(chunk_text, voice=self.voice, speed=self.speed))
+            return list(self.pipeline(chunk_text, voice=self.voice, speed=self.speed))
 
         segments = await loop.run_in_executor(None, _run_pipeline)
 
@@ -57,7 +52,7 @@ class TextToSpeechStreamer:
             if hasattr(audio, "numpy"):
                 audio = audio.numpy()  # Tensor → numpy
             audio_bytes = np.asarray(audio, dtype=np.float32).tobytes()
-            await self.on_audio_chunk(audio_bytes, msg_id)
+            await self.on_ai_audio_response_chunk(audio_bytes, msg_id)
 
     async def speak_stream(self, text_stream: AsyncIterator[str], msg_id: str) -> None:
         """
@@ -66,7 +61,7 @@ class TextToSpeechStreamer:
 
         Args:
             text_stream: async iterator of text tokens from the LLM.
-            msg_id:      identifier forwarded to every on_audio_chunk callback call
+            msg_id:      identifier forwarded to every on_ai_audio_response_chunk callback call
                          so the client can correlate audio with a specific response.
         """
         buffer = ""

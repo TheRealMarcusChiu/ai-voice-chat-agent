@@ -7,35 +7,41 @@ from faster_whisper import WhisperModel
 import uuid as uuid_lib
 
 
-class AudioToTextRecorder2:
+class MySTT:
     SAMPLE_RATE = 16000
     CHUNK_SIZE = 256
 
     def __init__(
         self,
-        on_realtime_transcription_update=None,
+        on_user_transcript_unfinished=None,
         silence_threshold=0.001,
         silence_duration=1.0,
         model_size="tiny",
         language="en",
         loop=None,
+        device="cpu",
     ):
-        self.on_realtime_transcription_update = on_realtime_transcription_update
+        self.on_user_transcript_unfinished = on_user_transcript_unfinished
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
         self.language = language
-        self.loop = loop
+        self.loop = loop  # will be set on first call to text()
         self.audio_queue = queue.Queue()
-        self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        if device == "cpu":
+            self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        elif device == "cuda":
+            self.model = WhisperModel(model_size, device="cuda", compute_type="float16")
+        else:
+            raise ValueError(f"Unsupported device: {device}")
 
     def feed(self, chunk: np.ndarray):
-        """Push audio from an external source into the queue.
-        chunk should be a 1-D float32 numpy array at SAMPLE_RATE Hz."""
         self.audio_queue.put(chunk.flatten().astype(np.float32))
 
     async def text(self, on_final, *args):
-        loop = asyncio.get_running_loop()
-        audio, utterance_id = await loop.run_in_executor(None, self._record_utterance)
+        # Capture the running loop so background threads can schedule coroutines
+        self.loop = asyncio.get_running_loop()
+
+        audio, utterance_id = await self.loop.run_in_executor(None, self._record_utterance)
         result = self._transcribe(audio)
         if result.strip():
             if inspect.iscoroutinefunction(on_final):
@@ -44,7 +50,7 @@ class AudioToTextRecorder2:
                 on_final(result, utterance_id, *args)
 
     def _record_utterance(self) -> tuple[np.ndarray, str]:
-        utterance_id = str(uuid_lib.uuid4())   # <-- born here, once
+        utterance_id = str(uuid_lib.uuid4())
         buffer = []
         chunks_per_transcription = max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE))
 
@@ -71,20 +77,29 @@ class AudioToTextRecorder2:
                 if has_speech:
                     silence_chunk_count = 0
 
-                if self.on_realtime_transcription_update:
-                    partial = np.concatenate(buffer)
-                    uid = utterance_id  # capture in closure
-                    def _fire(a=partial, u=uid):
+                if self.on_user_transcript_unfinished and self.loop:
+                    partial_audio = np.concatenate(buffer)
+                    uid = utterance_id
+
+                    def _fire(a=partial_audio, u=uid):
                         result = self._transcribe(a, realtime=True)
-                        cb = self.on_realtime_transcription_update(result, u)  # pass uuid
-                        if inspect.iscoroutine(cb) and self.loop:
-                            asyncio.run_coroutine_threadsafe(cb, self.loop)
+                        # on_user_transcript_unfinished is async — schedule it safely
+                        future = asyncio.run_coroutine_threadsafe(
+                            self.on_user_transcript_unfinished(result, u),
+                            self.loop,
+                        )
+                        # Optional: log errors from the scheduled coroutine
+                        try:
+                            future.result(timeout=10)
+                        except Exception as e:
+                            print(f"[STT] realtime callback error: {e}")
+
                     threading.Thread(target=_fire, daemon=True).start()
 
             if silence_chunk_count >= silence_chunk_count_duration:
                 break
 
-        return np.concatenate(buffer), utterance_id   # <-- return both
+        return np.concatenate(buffer), utterance_id
 
     def _transcribe(self, audio: np.ndarray, realtime=False) -> str:
         segments, _ = self.model.transcribe(
