@@ -173,8 +173,9 @@ async def handle_client(websocket):
     try:
         await session.run()
     except websockets.exceptions.ConnectionClosed:
-        print(f"Client disconnected: user_id={user_id}")
+        print(f"Client Exception: user_id={user_id} - websockets.exceptions.ConnectionClosed")
     finally:
+        print(f"Client disconnecting: user_id={user_id}")
         await session.close()
         sessions.remove(session)
         print(f"Client disconnected: user_id={user_id}")
