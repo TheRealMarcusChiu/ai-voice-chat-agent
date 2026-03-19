@@ -13,6 +13,7 @@ class MySTT:
 
     def __init__(
         self,
+        on_user_transcript_start=None,
         on_user_transcript_unfinished=None,
         silence_threshold=0.001,
         silence_duration=0.5,
@@ -21,6 +22,7 @@ class MySTT:
         loop=None,
         device="cpu",
     ):
+        self.on_user_transcript_start = on_user_transcript_start
         self.on_user_transcript_unfinished = on_user_transcript_unfinished
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
@@ -49,6 +51,24 @@ class MySTT:
             else:
                 on_final(result, utterance_id, *args)
 
+    def _transcript_started(self, utterance_id: str):
+        if self.on_user_transcript_start and self.loop:
+            uid = utterance_id
+
+            def _fire(u=uid):
+                # on_user_transcript_start is async — schedule it safely
+                future = asyncio.run_coroutine_threadsafe(
+                    self.on_user_transcript_start(u),
+                    self.loop,
+                )
+                # Optional: log errors from the scheduled coroutine
+                try:
+                    future.result(timeout=10)
+                except Exception as e:
+                    print(f"[STT] realtime callback error: {e}")
+
+            threading.Thread(target=_fire, daemon=True).start()
+
     def _record_utterance(self) -> tuple[np.ndarray, str]:
         utterance_id = str(uuid_lib.uuid4())
         buffer = []
@@ -64,6 +84,8 @@ class MySTT:
                     break
             if len(buffer) > chunks_per_transcription * 4:
                 buffer = buffer[-chunks_per_transcription:]
+
+        self._transcript_started(utterance_id)
 
         # Once we detect speech, keep recording until we get sustained silence
         silence_chunk_count_duration = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
