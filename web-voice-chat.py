@@ -20,6 +20,7 @@ from util import queue_to_async_iter, fan_out_stream
 load_dotenv()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 SYSTEM_PROMPT = os.getenv("SYSTEM_PROMPT")
+DEVICE = os.getenv("DEVICE", "cpu")
 
 
 agent = create_agent(
@@ -92,7 +93,7 @@ async def invoke_ai(websocket, user_transcript: str):
             "samplerate": 24000,
         }))
 
-    tts = TextToSpeechStreamer(on_audio_chunk=on_audio_chunk)
+    tts = TextToSpeechStreamer(on_audio_chunk=on_audio_chunk, device=DEVICE)
 
     async def stream_tts():
         await websocket.send(json.dumps({"type": "on-ai-audio-start", "id": msg_id}))
@@ -113,6 +114,7 @@ async def handle_client(websocket):
     stt = AudioToTextRecorder2(
         on_realtime_transcription_update=partial(on_user_transcript_unfinished, websocket=websocket),
         loop=asyncio.get_running_loop(),
+        device=DEVICE,
     )
 
     async def consume_user_audio():
@@ -133,7 +135,7 @@ async def handle_client(websocket):
 
 async def main():
     print("Starting WebSocket server on ws://localhost:8765")
-    async with websockets.serve(handle_client, "localhost", 8765):
+    async with websockets.serve(handle_client, "0.0.0.0", 8765):
         await asyncio.Future()
 
 

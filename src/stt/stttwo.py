@@ -19,6 +19,7 @@ class AudioToTextRecorder2:
         model_size="tiny",
         language="en",
         loop=None,
+        device="cpu",
     ):
         self.on_realtime_transcription_update = on_realtime_transcription_update
         self.silence_threshold = silence_threshold
@@ -26,7 +27,12 @@ class AudioToTextRecorder2:
         self.language = language
         self.loop = loop
         self.audio_queue = queue.Queue()
-        self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        if device == "cpu":
+            self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
+        elif device == "cuda":
+            self.model = WhisperModel(model_size, device="cuda", compute_type="float16")
+        else:
+            raise ValueError(f"Unsupported device: {device}")
 
     def feed(self, chunk: np.ndarray):
         """Push audio from an external source into the queue.

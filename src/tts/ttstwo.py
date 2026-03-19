@@ -4,8 +4,6 @@ from kokoro import KPipeline
 import numpy as np
 
 
-pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
-
 # Callback type: receives raw PCM bytes (float32, 24000 Hz) and a message id
 AudioChunkCallback = Callable[[bytes, str], Awaitable[None]]
 
@@ -24,6 +22,7 @@ class TextToSpeechStreamer:
         voice: str = 'af_bella',
         speed: float = 1.3,
         samplerate: int = 24000,
+        device: str = None,
     ):
         """
         Args:
@@ -37,6 +36,10 @@ class TextToSpeechStreamer:
         self.voice = voice
         self.speed = speed
         self.samplerate = samplerate
+        if device == "cuda":
+            self.pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M', device="cuda")
+        else:
+            self.pipeline = KPipeline(lang_code='a', repo_id='hexgrad/Kokoro-82M')
 
     async def _synthesize_and_emit(self, chunk_text: str, msg_id: str) -> None:
         """Synthesize a single sentence and fire the callback for every audio segment."""
@@ -48,7 +51,7 @@ class TextToSpeechStreamer:
 
         # Run the blocking Kokoro pipeline in a thread-pool executor
         def _run_pipeline():
-            return list(pipeline(chunk_text, voice=self.voice, speed=self.speed))
+            return list(self.pipeline(chunk_text, voice=self.voice, speed=self.speed))
 
         segments = await loop.run_in_executor(None, _run_pipeline)
 
