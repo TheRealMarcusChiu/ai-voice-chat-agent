@@ -15,7 +15,7 @@ class MySTT:
         self,
         on_user_transcript_unfinished=None,
         silence_threshold=0.001,
-        silence_duration=1.0,
+        silence_duration=0.5,
         model_size="tiny",
         language="en",
         loop=None,
