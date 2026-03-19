@@ -107,7 +107,6 @@ async def invoke_ai(websocket, user_transcript: str):
         stream_tts(),
     )
 
-
 async def handle_client(websocket):
     print("Client connected")
 
