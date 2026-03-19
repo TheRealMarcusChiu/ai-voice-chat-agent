@@ -89,7 +89,11 @@ async def handle_client(websocket):
     print("Client connected")
 
     global ws
+    global stt
+    global tts
     ws = websocket
+    stt = MySTT(on_user_transcript_unfinished=on_user_transcript_unfinished, device=DEVICE)
+    tts = MyTTS(on_ai_audio_response_chunk=on_ai_audio_response_chunk, device=DEVICE)
 
     async def consume_user_audio():
         async for message in websocket:
@@ -124,10 +128,11 @@ agent = create_agent(
     response_format=ToolStrategy(MyResponseFormat),
     checkpointer=InMemorySaver(),
 )
-stt = MySTT(on_user_transcript_unfinished=on_user_transcript_unfinished, device=DEVICE)
-tts = MyTTS(on_ai_audio_response_chunk=on_ai_audio_response_chunk, device=DEVICE)
-ws = None
 
+
+ws = None
+stt = None
+tts = None
 
 async def main():
     print("Starting WebSocket server on ws://localhost:8765")
