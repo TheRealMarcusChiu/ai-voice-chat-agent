@@ -19,6 +19,7 @@ Way #2:
 - `source .venv/bin/activate`
 - `python main.py`
 
+
 # Adding Additional Dependencies
 
 - `uv add DEPENDENCY_NAME_HERE`
