@@ -12,3 +12,7 @@ realtimesst.log
 *.egg-info/
 
 models/*
+
+# Google Auth - NEVER commit these
+credentials.json
+token.json
