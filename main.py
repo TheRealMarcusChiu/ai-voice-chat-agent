@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import numpy as np
 import websockets
@@ -10,6 +11,7 @@ from langchain_ollama import ChatOllama
 import os
 from dotenv import load_dotenv
 from langchain.messages import AIMessage
+from stt.mystt import Transcript
 from tools import get_user_location, get_weather_for_location
 from config import MyContext, MyResponseFormat
 from tts import MyTTS
@@ -17,6 +19,7 @@ from stt import MySTT
 from util import queue_to_async_iter, fan_out_stream
 import urllib.parse
 from aiohttp import web
+from typing import AsyncGenerator
 
 
 load_dotenv()
@@ -49,38 +52,76 @@ class ClientSession:
         self.stt = MySTT(
             on_user_transcript_start=self.on_user_transcript_start,
             on_user_transcript_unfinished=self.on_user_transcript_unfinished,
+            on_user_transcript_end=self.on_user_transcript_end,
             device=DEVICE,
         )
         self.tts = MyTTS(
             on_ai_audio_response_chunk=self.on_ai_audio_response_chunk,
             device=DEVICE,
         )
+        self.loop = asyncio.get_event_loop()
 
-    async def on_user_transcript_start(self, utterance_id: str):
-        print(f"[{self.user_id}][{utterance_id[:8]}] transcript started")
-        await self.ws.send(json.dumps({
-            "type": "on-transcript-start",
-            "utterance_id": utterance_id,
-        }))
+    def run(self):
+        audio_source = self._get_audio_source()
+        self.stt.transcribe_audio(audio_source)
 
-    async def on_user_transcript_unfinished(self, user_transcript: str, utterance_id: str):
-        print(f"[{self.user_id}][{utterance_id[:8]}] transcript unfinished: {user_transcript}")
-        await self.ws.send(json.dumps({
-            "type": "on-transcript-unfinished",
-            "utterance_id": utterance_id,
-            "text": user_transcript,
-        }))
+    # ------------------------------------------------------------------
+    # Other methods related to STT, TTS, and agent invocation
+    # ------------------------------------------------------------------
 
-    async def on_user_transcript_finished(self, user_transcript: str, utterance_id: str):
-        print(f"[{self.user_id}][{utterance_id[:8]}] transcript finished:   {user_transcript}")
-        await asyncio.gather(
-            self.ws.send(json.dumps({
-                "type": "on-transcript-finished",
-                "utterance_id": utterance_id,
-                "text": user_transcript,
-            })),
-            self.invoke_ai(user_transcript),
+    async def _get_audio_source(self) -> AsyncGenerator[np.ndarray, None]:
+        async for message in self.ws:
+            if isinstance(message, bytes):
+                yield np.frombuffer(message, dtype=np.float32)
+
+    def _async_send(self, data):
+        asyncio.run_coroutine_threadsafe(
+            self.ws.send(json.dumps(data)),
+            self.loop
         )
+
+
+    def on_user_transcript_start(self, t: Transcript):
+        print(f"[{self.user_id}][{t.id[:8]}] transcript started")
+        self._async_send({
+                "type": "on-transcript-start",
+                "utterance_id": t.id,
+            })
+
+    def on_user_transcript_unfinished(self, t: Transcript):
+        print(f"[{self.user_id}][{t.id[:8]}] transcript unfinished: {t.transcript}")
+        self._async_send({
+            "type": "on-transcript-unfinished",
+            "utterance_id": t.id,
+            "text": t.transcript,
+        })
+
+    def on_user_transcript_end(self, t: Transcript):
+        print(f"[{self.user_id}][{t.id[:8]}] transcript ended:      {t.transcript}")
+        self._async_send({
+            "type": "on-transcript-end",
+            "utterance_id": t.id,
+            "text": t.transcript,
+        })
+        self._prompt_ai(t.transcript)
+
+
+    def _prompt_ai(self, user_transcript: str):
+        print(f"[{self.user_id}] Invoking AI with prompt: {user_transcript}")
+        msg_id = str(uuid.uuid4())
+
+        async def _invoke():
+            ai_response_stream = self.get_ai_response_stream(user_transcript)
+            text_queue: asyncio.Queue = asyncio.Queue()
+            tts_queue: asyncio.Queue = asyncio.Queue()
+            await asyncio.gather(
+                fan_out_stream(ai_response_stream, [text_queue, tts_queue]),
+                self.on_ai_text_response(msg_id, text_queue),
+                self.on_ai_audio_response(msg_id, tts_queue),
+            )
+
+        asyncio.run_coroutine_threadsafe(_invoke(), self.loop)
+
 
     async def get_ai_response_stream(self, user_transcript: str):
         stream = agent.astream(
@@ -116,40 +157,6 @@ class ClientSession:
             "samplerate": samplerate,
         }))
 
-    async def invoke_ai(self, user_transcript: str):
-        print(f"[{self.user_id}] Invoking AI with prompt: {user_transcript}")
-        msg_id = str(uuid.uuid4())
-
-        text_queue: asyncio.Queue = asyncio.Queue()
-        tts_queue: asyncio.Queue = asyncio.Queue()
-
-        await asyncio.gather(
-            fan_out_stream(self.get_ai_response_stream(user_transcript), [text_queue, tts_queue]),
-            self.on_ai_text_response(msg_id, text_queue),
-            self.on_ai_audio_response(msg_id, tts_queue),
-        )
-
-    # ------------------------------------------------------------------
-    # Main read loop
-    # ------------------------------------------------------------------
-
-    async def run(self):
-        async def consume_user_audio():
-            async for message in self.ws:
-                if isinstance(message, bytes):
-                    chunk = np.frombuffer(message, dtype=np.float32)
-                    self.stt.feed(chunk)
-
-        async def produce_user_transcript():
-            while True:
-                def on_final(result, uid):
-                    asyncio.ensure_future(
-                        self.on_user_transcript_finished(result, uid)
-                    )
-                await self.stt.text(on_final=on_final)
-
-        await asyncio.gather(consume_user_audio(), produce_user_transcript())
-
 
 # ------------------------------------------------------------------
 # WebSocket entry point — one ClientSession per connection
@@ -161,7 +168,8 @@ async def handle_client(websocket):
     user_id = params.get("user_id", [None])[0] or str(uuid.uuid4())
     session = ClientSession(websocket, user_id)
     print(f"Client connected: user_id={user_id}")
-    await session.run()
+    session.run()
+    await websocket.wait_closed() # keeps handle_client alive indefinitely
 
 
 # ------------------------------------------------------------------

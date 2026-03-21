@@ -1,10 +1,18 @@
+from typing import AsyncGenerator, Optional
+
 import numpy as np
 import queue
 import threading
 import asyncio
-import inspect
 from faster_whisper import WhisperModel
 import uuid as uuid_lib
+from dataclasses import dataclass
+
+
+@dataclass
+class Transcript:
+    id: int
+    transcript: Optional[str] = None
 
 
 class MySTT:
@@ -15,19 +23,19 @@ class MySTT:
         self,
         on_user_transcript_start=None,
         on_user_transcript_unfinished=None,
+        on_user_transcript_end=None,
         silence_threshold=0.001,
         silence_duration=0.5,
         model_size="tiny",
         language="en",
-        loop=None,
         device="cpu",
     ):
         self.on_user_transcript_start = on_user_transcript_start
         self.on_user_transcript_unfinished = on_user_transcript_unfinished
+        self.on_user_transcript_end = on_user_transcript_end
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
         self.language = language
-        self.loop = loop  # will be set on first call to text()
         self.audio_queue = queue.Queue()
         if device == "cpu":
             self.model = WhisperModel(model_size, device="cpu", compute_type="int8")
@@ -36,41 +44,20 @@ class MySTT:
         else:
             raise ValueError(f"Unsupported device: {device}")
 
-    def feed(self, chunk: np.ndarray):
-        self.audio_queue.put(chunk.flatten().astype(np.float32))
+    def transcribe_audio(self, audio_source: AsyncGenerator[np.ndarray, None]):
+        asyncio.run_coroutine_threadsafe(self._queue_audio(audio_source), asyncio.get_event_loop())
+        threading.Thread(target=self._transcribe_audio, daemon=True).start()
 
-    async def text(self, on_final, *args):
-        # Capture the running loop so background threads can schedule coroutines
-        self.loop = asyncio.get_running_loop()
+    async def _queue_audio(self, audio_source: AsyncGenerator[np.ndarray, None]):
+        async for chunk in audio_source:
+            self.audio_queue.put(chunk.flatten().astype(np.float32))
 
-        audio, utterance_id = await self.loop.run_in_executor(None, self._record_utterance)
-        result = self._transcribe(audio)
-        if result.strip():
-            if inspect.iscoroutinefunction(on_final):
-                await on_final(result, utterance_id, *args)
-            else:
-                on_final(result, utterance_id, *args)
+    def _transcribe_audio(self):
+        while True:
+            self._transcribe_a_sentence()
 
-    def _transcript_started(self, utterance_id: str):
-        if self.on_user_transcript_start and self.loop:
-            uid = utterance_id
-
-            def _fire(u=uid):
-                # on_user_transcript_start is async — schedule it safely
-                future = asyncio.run_coroutine_threadsafe(
-                    self.on_user_transcript_start(u),
-                    self.loop,
-                )
-                # Optional: log errors from the scheduled coroutine
-                try:
-                    future.result(timeout=10)
-                except Exception as e:
-                    print(f"[STT] realtime callback error: {e}")
-
-            threading.Thread(target=_fire, daemon=True).start()
-
-    def _record_utterance(self) -> tuple[np.ndarray, str]:
-        utterance_id = str(uuid_lib.uuid4())
+    def _transcribe_a_sentence(self):
+        id = str(uuid_lib.uuid4())
         buffer = []
         chunks_per_transcription = max(1, int(0.5 * self.SAMPLE_RATE / self.CHUNK_SIZE))
 
@@ -85,7 +72,7 @@ class MySTT:
             if len(buffer) > chunks_per_transcription * 4:
                 buffer = buffer[-chunks_per_transcription:]
 
-        self._transcript_started(utterance_id)
+        self.on_user_transcript_start(Transcript(id=id))
 
         # Once we detect speech, keep recording until we get sustained silence
         silence_chunk_count_duration = int(self.silence_duration * self.SAMPLE_RATE / self.CHUNK_SIZE)
@@ -95,35 +82,21 @@ class MySTT:
             buffer.append(chunk)
             silence_chunk_count += 1
 
+            transcript = None
             if len(buffer) % chunks_per_transcription == 0:
                 recent = np.concatenate(buffer[-chunks_per_transcription:])
                 has_speech = bool(self._transcribe(recent, realtime=True).strip())
                 if has_speech:
                     silence_chunk_count = 0
 
-                if self.on_user_transcript_unfinished and self.loop:
+                if self.on_user_transcript_unfinished:
                     partial_audio = np.concatenate(buffer)
-                    uid = utterance_id
-
-                    def _fire(a=partial_audio, u=uid):
-                        result = self._transcribe(a, realtime=True)
-                        # on_user_transcript_unfinished is async — schedule it safely
-                        future = asyncio.run_coroutine_threadsafe(
-                            self.on_user_transcript_unfinished(result, u),
-                            self.loop,
-                        )
-                        # Optional: log errors from the scheduled coroutine
-                        try:
-                            future.result(timeout=10)
-                        except Exception as e:
-                            print(f"[STT] realtime callback error: {e}")
-
-                    threading.Thread(target=_fire, daemon=True).start()
+                    transcript = self._transcribe(partial_audio, realtime=True)
+                    self.on_user_transcript_unfinished(Transcript(id=id, transcript=transcript))
 
             if silence_chunk_count >= silence_chunk_count_duration:
+                self.on_user_transcript_end(Transcript(id=id, transcript=transcript))
                 break
-
-        return np.concatenate(buffer), utterance_id
 
     def _transcribe(self, audio: np.ndarray, realtime=False) -> str:
         segments, _ = self.model.transcribe(

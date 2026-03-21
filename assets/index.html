@@ -486,7 +486,7 @@ function connectWS(url) {
         }
         scrollDown();
       }
-    } else if (msg.type === "on-transcript-finished" && msg.text) {
+    } else if (msg.type === "on-transcript-end" && msg.text) {
       onTranscriptFullId = msg.utterance_id;
       if (streamLines[msg.utterance_id]) {
         streamLines[msg.utterance_id].textContent = msg.text;
