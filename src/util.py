@@ -1,5 +1,5 @@
 import asyncio
-
+import inspect
 
 async def fan_out_stream(source_stream, queues: list[asyncio.Queue]):
     """
@@ -22,3 +22,9 @@ async def queue_to_async_iter(queue: asyncio.Queue):
         if item is None:
             return
         yield item
+
+async def call(fn, *args, **kwargs):
+    if inspect.iscoroutinefunction(fn):
+        await fn(*args, **kwargs)
+    else:
+        fn(*args, **kwargs)

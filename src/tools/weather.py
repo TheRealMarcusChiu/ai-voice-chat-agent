@@ -8,7 +8,18 @@ from config import MyContext
 @tool
 def get_weather_for_location(city: str) -> str:
     """Get weather for a given city."""
-    return f"It's always sunny in {city}!"
+    if "plano" in city.lower():
+        return "sunny"
+    elif "sf" in city.lower() or "san francisco" in city.lower():
+        return "foggy"
+    elif "houston" in city.lower():
+        return "hot and humid"  
+    elif "austin" in city.lower():
+        return "partly cloudy"
+    elif "new york" in city.lower():
+        return "rainy"
+    else:
+        return f"default sunny"
 
 @tool
 def get_user_location(runtime: ToolRuntime[MyContext]) -> str:
