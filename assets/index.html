@@ -475,23 +475,23 @@ function connectWS(url) {
     const msg = JSON.parse(data);
 
     if (msg.type === "on-transcript-start") {
-      console.log("transcript started: ", msg.utterance_id);
+      console.log("transcript started: ", msg.transcript_id);
       cancelActiveAudioSources();
-    } else if (msg.type === "on-transcript-unfinished" && msg.text) {
-      if (msg.utterance_id !== onTranscriptFullId) {
-        if (streamLines[msg.utterance_id]) {
-          streamLines[msg.utterance_id].textContent = msg.text;
+    } else if (msg.type === "on-transcript-unfinished" && msg.transcript) {
+      if (msg.transcript_id !== onTranscriptFullId) {
+        if (streamLines[msg.transcript_id]) {
+          streamLines[msg.transcript_id].textContent = msg.transcript;
         } else {
-          streamLines[msg.utterance_id] = addLine(msg.text, "user");
+          streamLines[msg.transcript_id] = addLine(msg.transcript, "user");
         }
         scrollDown();
       }
-    } else if (msg.type === "on-transcript-end" && msg.text) {
-      onTranscriptFullId = msg.utterance_id;
-      if (streamLines[msg.utterance_id]) {
-        streamLines[msg.utterance_id].textContent = msg.text;
+    } else if (msg.type === "on-transcript-end" && msg.transcript) {
+      onTranscriptFullId = msg.transcript_id;
+      if (streamLines[msg.transcript_id]) {
+        streamLines[msg.transcript_id].textContent = msg.transcript;
         scrollDown();
-        delete streamLines[msg.utterance_id];
+        delete streamLines[msg.transcript_id];
       }
     } else if (msg.type === "on-ai-text-response-start") {
       streamLines[msg.id] = addLine("", "server");
@@ -503,11 +503,11 @@ function connectWS(url) {
       }
     } else if (msg.type === "on-ai-text-response-end") {
       delete streamLines[msg.id];
-    } else if (msg.type === "on-ai-audio-start") {
+    } else if (msg.type === "on-ai-audio-response-start") {
       resetAudioScheduler();
-    } else if (msg.type === "on-ai-audio-chunk") {
+    } else if (msg.type === "on-ai-audio-response-chunk") {
       scheduleAudioChunk(new Float32Array(msg.audio), msg.samplerate);
-    } else if (msg.type === "on-ai-audio-end") {
+    } else if (msg.type === "on-ai-audio-response-end") {
       // No-op for now
     }
   });

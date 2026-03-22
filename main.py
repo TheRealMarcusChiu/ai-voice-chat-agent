@@ -20,6 +20,9 @@ from util import queue_to_async_iter, fan_out_stream
 import urllib.parse
 from aiohttp import web
 from typing import AsyncGenerator
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+import config
 
 
 load_dotenv()
@@ -30,17 +33,28 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
 
 agent = create_agent(
-    model=ChatOllama(
-        model=OLLAMA_MODEL,
-        temperature=0,
-        base_url=OLLAMA_BASE_URL,
-    ),
-    system_prompt=SYSTEM_PROMPT,
-    tools=[get_user_location, get_weather_for_location],
-    context_schema=MyContext,
-    response_format=ToolStrategy(MyResponseFormat),
-    checkpointer=InMemorySaver(),
-)
+    model = ChatOllama(
+        model = "llama3.2",
+        temperature = 0,
+        base_url = OLLAMA_BASE_URL),
+    system_prompt = SYSTEM_PROMPT,
+    tools = [get_user_location, get_weather_for_location],
+    context_schema = MyContext,
+    response_format = ToolStrategy(MyResponseFormat),
+    checkpointer = InMemorySaver())
+
+
+
+# agent = create_agent(
+#     model="anthropic:claude-sonnet-4-20250514",
+#     tools=[get_user_location, get_weather_for_location],
+#     context_schema=MyContext,
+#     system_prompt="You are a helpful assistant. Use tools when appropriate.",
+#     response_format=ToolStrategy(MyResponseFormat),
+#     checkpointer=InMemorySaver(
+#         serde=JsonPlusSerializer(allowed_msgpack_modules=[config])
+#     )
+# )
 
 
 class ClientSession:
@@ -53,6 +67,7 @@ class ClientSession:
             on_user_transcript_start=self.on_user_transcript_start,
             on_user_transcript_unfinished=self.on_user_transcript_unfinished,
             on_user_transcript_end=self.on_user_transcript_end,
+            silence_duration=1.0,
             device=DEVICE,
         )
         self.tts = MyTTS(
@@ -85,23 +100,23 @@ class ClientSession:
         print(f"[{self.user_id}][{t.id[:8]}] transcript started")
         self._async_send({
                 "type": "on-transcript-start",
-                "utterance_id": t.id,
+                "transcript_id": t.id,
             })
 
     def on_user_transcript_unfinished(self, t: Transcript):
         print(f"[{self.user_id}][{t.id[:8]}] transcript unfinished: {t.transcript}")
         self._async_send({
             "type": "on-transcript-unfinished",
-            "utterance_id": t.id,
-            "text": t.transcript,
+            "transcript_id": t.id,
+            "transcript": t.transcript,
         })
 
     def on_user_transcript_end(self, t: Transcript):
         print(f"[{self.user_id}][{t.id[:8]}] transcript ended:      {t.transcript}")
         self._async_send({
             "type": "on-transcript-end",
-            "utterance_id": t.id,
-            "text": t.transcript,
+            "transcript_id": t.id,
+            "transcript": t.transcript,
         })
         self._prompt_ai(t.transcript)
 
@@ -136,31 +151,30 @@ class ClientSession:
 
     async def on_ai_text_response(self, msg_id: str, text_queue: asyncio.Queue):
         await self.ws.send(json.dumps({"type": "on-ai-text-response-start", "id": msg_id}))
+        print(f"[{self.user_id}][{msg_id[:8]}] AI text: ", end="", flush=True)
         async for chunk in queue_to_async_iter(text_queue):
+            print(chunk, end="", flush=True)
             await self.ws.send(json.dumps({
                 "type": "on-ai-text-response-chunk",
                 "id": msg_id,
                 "chunk": chunk,
             }))
         await self.ws.send(json.dumps({"type": "on-ai-text-response-end", "id": msg_id}))
+        print()
 
     async def on_ai_audio_response(self, msg_id: str, tts_queue: asyncio.Queue):
-        await self.ws.send(json.dumps({"type": "on-ai-audio-start", "id": msg_id}))
+        await self.ws.send(json.dumps({"type": "on-ai-audio-response-start", "id": msg_id}))
         await self.tts.speak_stream(queue_to_async_iter(tts_queue), msg_id)
-        await self.ws.send(json.dumps({"type": "on-ai-audio-end", "id": msg_id}))
+        await self.ws.send(json.dumps({"type": "on-ai-audio-response-end", "id": msg_id}))
 
     async def on_ai_audio_response_chunk(self, audio_bytes: bytes, samplerate: int, msg_id: str):
         await self.ws.send(json.dumps({
-            "type": "on-ai-audio-chunk",
+            "type": "on-ai-audio-response-chunk",
             "id": msg_id,
             "audio": np.frombuffer(audio_bytes, dtype=np.float32).tolist(),
             "samplerate": samplerate,
         }))
 
-
-# ------------------------------------------------------------------
-# WebSocket entry point — one ClientSession per connection
-# ------------------------------------------------------------------
 
 async def handle_client(websocket):
     query = websocket.request.path
@@ -169,12 +183,7 @@ async def handle_client(websocket):
     session = ClientSession(websocket, user_id)
     print(f"Client connected: user_id={user_id}")
     session.run()
-    await websocket.wait_closed() # keeps handle_client alive indefinitely
-
-
-# ------------------------------------------------------------------
-# HTTP server — serves assets/index.html at port 8080
-# ------------------------------------------------------------------
+    await websocket.wait_closed() # keeps handle_client alive indefinitely, otherwise websocket will close
 
 async def serve_http():
     async def index(request):
@@ -189,11 +198,6 @@ async def serve_http():
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
     print("\n\nServing assets/index.html at http://localhost:8080")
-
-
-# ------------------------------------------------------------------
-# Entry point
-# ------------------------------------------------------------------
 
 async def main():
     await serve_http()
