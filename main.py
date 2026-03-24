@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import numpy as np
 import websockets
@@ -10,6 +11,7 @@ from langchain_ollama import ChatOllama
 import os
 from dotenv import load_dotenv
 from langchain.messages import AIMessage
+from stt.mystt import Transcript
 from tools import get_user_location, get_weather_for_location
 from config import MyContext, MyResponseFormat
 from tts import MyTTS
@@ -17,6 +19,10 @@ from stt import MySTT
 from util import queue_to_async_iter, fan_out_stream
 import urllib.parse
 from aiohttp import web
+from typing import AsyncGenerator
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+import config
 
 
 load_dotenv()
@@ -27,17 +33,28 @@ OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2")
 
 
 agent = create_agent(
-    model=ChatOllama(
-        model=OLLAMA_MODEL,
-        temperature=0,
-        base_url=OLLAMA_BASE_URL,
-    ),
-    system_prompt=SYSTEM_PROMPT,
-    tools=[get_user_location, get_weather_for_location],
-    context_schema=MyContext,
-    response_format=ToolStrategy(MyResponseFormat),
-    checkpointer=InMemorySaver(),
-)
+    model = ChatOllama(
+        model = "llama3.2",
+        temperature = 0,
+        base_url = OLLAMA_BASE_URL),
+    system_prompt = SYSTEM_PROMPT,
+    tools = [get_user_location, get_weather_for_location],
+    context_schema = MyContext,
+    response_format = ToolStrategy(MyResponseFormat),
+    checkpointer = InMemorySaver())
+
+
+
+# agent = create_agent(
+#     model="anthropic:claude-sonnet-4-20250514",
+#     tools=[get_user_location, get_weather_for_location],
+#     context_schema=MyContext,
+#     system_prompt="You are a helpful assistant. Use tools when appropriate.",
+#     response_format=ToolStrategy(MyResponseFormat),
+#     checkpointer=InMemorySaver(
+#         serde=JsonPlusSerializer(allowed_msgpack_modules=[config])
+#     )
+# )
 
 
 class ClientSession:
@@ -49,38 +66,77 @@ class ClientSession:
         self.stt = MySTT(
             on_user_transcript_start=self.on_user_transcript_start,
             on_user_transcript_unfinished=self.on_user_transcript_unfinished,
+            on_user_transcript_end=self.on_user_transcript_end,
+            silence_duration=1.0,
             device=DEVICE,
         )
         self.tts = MyTTS(
             on_ai_audio_response_chunk=self.on_ai_audio_response_chunk,
             device=DEVICE,
         )
+        self.loop = asyncio.get_event_loop()
 
-    async def on_user_transcript_start(self, utterance_id: str):
-        print(f"[{self.user_id}][{utterance_id[:8]}] transcript started")
-        await self.ws.send(json.dumps({
-            "type": "on-transcript-start",
-            "utterance_id": utterance_id,
-        }))
+    def run(self):
+        audio_source = self._get_audio_source()
+        self.stt.transcribe_audio(audio_source)
 
-    async def on_user_transcript_unfinished(self, user_transcript: str, utterance_id: str):
-        print(f"[{self.user_id}][{utterance_id[:8]}] transcript unfinished: {user_transcript}")
-        await self.ws.send(json.dumps({
-            "type": "on-transcript-unfinished",
-            "utterance_id": utterance_id,
-            "text": user_transcript,
-        }))
+    # ------------------------------------------------------------------
+    # Other methods related to STT, TTS, and agent invocation
+    # ------------------------------------------------------------------
 
-    async def on_user_transcript_finished(self, user_transcript: str, utterance_id: str):
-        print(f"[{self.user_id}][{utterance_id[:8]}] transcript finished:   {user_transcript}")
-        await asyncio.gather(
-            self.ws.send(json.dumps({
-                "type": "on-transcript-finished",
-                "utterance_id": utterance_id,
-                "text": user_transcript,
-            })),
-            self.invoke_ai(user_transcript),
+    async def _get_audio_source(self) -> AsyncGenerator[np.ndarray, None]:
+        async for message in self.ws:
+            if isinstance(message, bytes):
+                yield np.frombuffer(message, dtype=np.float32)
+
+    def _async_send(self, data):
+        asyncio.run_coroutine_threadsafe(
+            self.ws.send(json.dumps(data)),
+            self.loop
         )
+
+
+    def on_user_transcript_start(self, t: Transcript):
+        print(f"[{self.user_id}][{t.id[:8]}] transcript started")
+        self._async_send({
+                "type": "on-transcript-start",
+                "transcript_id": t.id,
+            })
+
+    def on_user_transcript_unfinished(self, t: Transcript):
+        print(f"[{self.user_id}][{t.id[:8]}] transcript unfinished: {t.transcript}")
+        self._async_send({
+            "type": "on-transcript-unfinished",
+            "transcript_id": t.id,
+            "transcript": t.transcript,
+        })
+
+    def on_user_transcript_end(self, t: Transcript):
+        print(f"[{self.user_id}][{t.id[:8]}] transcript ended:      {t.transcript}")
+        self._async_send({
+            "type": "on-transcript-end",
+            "transcript_id": t.id,
+            "transcript": t.transcript,
+        })
+        self._prompt_ai(t.transcript)
+
+
+    def _prompt_ai(self, user_transcript: str):
+        print(f"[{self.user_id}] Invoking AI with prompt: {user_transcript}")
+        msg_id = str(uuid.uuid4())
+
+        async def _invoke():
+            ai_response_stream = self.get_ai_response_stream(user_transcript)
+            text_queue: asyncio.Queue = asyncio.Queue()
+            tts_queue: asyncio.Queue = asyncio.Queue()
+            await asyncio.gather(
+                fan_out_stream(ai_response_stream, [text_queue, tts_queue]),
+                self.on_ai_text_response(msg_id, text_queue),
+                self.on_ai_audio_response(msg_id, tts_queue),
+            )
+
+        asyncio.run_coroutine_threadsafe(_invoke(), self.loop)
+
 
     async def get_ai_response_stream(self, user_transcript: str):
         stream = agent.astream(
@@ -95,65 +151,30 @@ class ClientSession:
 
     async def on_ai_text_response(self, msg_id: str, text_queue: asyncio.Queue):
         await self.ws.send(json.dumps({"type": "on-ai-text-response-start", "id": msg_id}))
+        print(f"[{self.user_id}][{msg_id[:8]}] AI text: ", end="", flush=True)
         async for chunk in queue_to_async_iter(text_queue):
+            print(chunk, end="", flush=True)
             await self.ws.send(json.dumps({
                 "type": "on-ai-text-response-chunk",
                 "id": msg_id,
                 "chunk": chunk,
             }))
         await self.ws.send(json.dumps({"type": "on-ai-text-response-end", "id": msg_id}))
+        print()
 
     async def on_ai_audio_response(self, msg_id: str, tts_queue: asyncio.Queue):
-        await self.ws.send(json.dumps({"type": "on-ai-audio-start", "id": msg_id}))
+        await self.ws.send(json.dumps({"type": "on-ai-audio-response-start", "id": msg_id}))
         await self.tts.speak_stream(queue_to_async_iter(tts_queue), msg_id)
-        await self.ws.send(json.dumps({"type": "on-ai-audio-end", "id": msg_id}))
+        await self.ws.send(json.dumps({"type": "on-ai-audio-response-end", "id": msg_id}))
 
     async def on_ai_audio_response_chunk(self, audio_bytes: bytes, samplerate: int, msg_id: str):
         await self.ws.send(json.dumps({
-            "type": "on-ai-audio-chunk",
+            "type": "on-ai-audio-response-chunk",
             "id": msg_id,
             "audio": np.frombuffer(audio_bytes, dtype=np.float32).tolist(),
             "samplerate": samplerate,
         }))
 
-    async def invoke_ai(self, user_transcript: str):
-        print(f"[{self.user_id}] Invoking AI with prompt: {user_transcript}")
-        msg_id = str(uuid.uuid4())
-
-        text_queue: asyncio.Queue = asyncio.Queue()
-        tts_queue: asyncio.Queue = asyncio.Queue()
-
-        await asyncio.gather(
-            fan_out_stream(self.get_ai_response_stream(user_transcript), [text_queue, tts_queue]),
-            self.on_ai_text_response(msg_id, text_queue),
-            self.on_ai_audio_response(msg_id, tts_queue),
-        )
-
-    # ------------------------------------------------------------------
-    # Main read loop
-    # ------------------------------------------------------------------
-
-    async def run(self):
-        async def consume_user_audio():
-            async for message in self.ws:
-                if isinstance(message, bytes):
-                    chunk = np.frombuffer(message, dtype=np.float32)
-                    self.stt.feed(chunk)
-
-        async def produce_user_transcript():
-            while True:
-                def on_final(result, uid):
-                    asyncio.ensure_future(
-                        self.on_user_transcript_finished(result, uid)
-                    )
-                await self.stt.text(on_final=on_final)
-
-        await asyncio.gather(consume_user_audio(), produce_user_transcript())
-
-
-# ------------------------------------------------------------------
-# WebSocket entry point — one ClientSession per connection
-# ------------------------------------------------------------------
 
 async def handle_client(websocket):
     query = websocket.request.path
@@ -161,12 +182,8 @@ async def handle_client(websocket):
     user_id = params.get("user_id", [None])[0] or str(uuid.uuid4())
     session = ClientSession(websocket, user_id)
     print(f"Client connected: user_id={user_id}")
-    await session.run()
-
-
-# ------------------------------------------------------------------
-# HTTP server — serves assets/index.html at port 8080
-# ------------------------------------------------------------------
+    session.run()
+    await websocket.wait_closed() # keeps handle_client alive indefinitely, otherwise websocket will close
 
 async def serve_http():
     async def index(request):
@@ -181,11 +198,6 @@ async def serve_http():
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
     print("\n\nServing assets/index.html at http://localhost:8080")
-
-
-# ------------------------------------------------------------------
-# Entry point
-# ------------------------------------------------------------------
 
 async def main():
     await serve_http()

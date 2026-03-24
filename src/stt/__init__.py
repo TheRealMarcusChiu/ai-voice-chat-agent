@@ -1,2 +1,2 @@
 from .stt import AudioToTextRecorder
-from .mystt import MySTT
+from .mystt import MySTT, Transcript
